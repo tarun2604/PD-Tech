@@ -364,6 +364,37 @@ export default function AllClientProfile() {
                 </div>
             </div>
 
+            {/* Contact Persons */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4">Contact Persons</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {contactPersons.map((contact) => (
+                        <div key={contact.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <h3 className="font-semibold text-gray-800">{contact.name}</h3>
+                            <p className="text-gray-600 text-sm">{contact.position}</p>
+                            <div className="mt-2 space-y-1">
+                                <div className="flex items-center text-gray-600 text-sm">
+                                    <Mail className="w-4 h-4 mr-2" />
+                                    {contact.email || 'No email'}
+                                </div>
+                                <div className="flex items-center text-gray-600 text-sm">
+                                    <Phone className="w-4 h-4 mr-2" />
+                                    {contact.phone || 'No phone'}
+                                </div>
+                            </div>
+                            {role === 'head' && (
+                                <button
+                                    onClick={() => setEditContact(contact)}
+                                    className="mt-2 px-3 py-1 bg-gray-200 text-sm rounded hover:bg-gray-300 transition-colors"
+                                >
+                                    Edit
+                                </button>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+
             {/* Checklist Section */}
             <div className="bg-white rounded-lg shadow-md p-6">
                 <h2 className="text-xl font-semibold text-gray-800 mb-4">Workflow Checklist</h2>
@@ -417,13 +448,6 @@ export default function AllClientProfile() {
                                             className="w-full mt-1 p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                         />
                                         
-                                        {/* Duration */}
-                                        {item.completed && (
-                                            <div className="text-xs text-gray-500 mt-1 flex items-center">
-                                                <Clock className="w-3 h-3 mr-1" />
-                                                Duration: {getStepDuration(item)}
-                                            </div>
-                                        )}
                                     </div>
                                     {item.completed && (
                                         <div className="text-green-500 flex items-center">
@@ -448,37 +472,6 @@ export default function AllClientProfile() {
                     )}
                 </div>
             )}
-
-            {/* Contact Persons */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4">Contact Persons</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {contactPersons.map((contact) => (
-                        <div key={contact.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                            <h3 className="font-semibold text-gray-800">{contact.name}</h3>
-                            <p className="text-gray-600 text-sm">{contact.position}</p>
-                            <div className="mt-2 space-y-1">
-                                <div className="flex items-center text-gray-600 text-sm">
-                                    <Mail className="w-4 h-4 mr-2" />
-                                    {contact.email || 'No email'}
-                                </div>
-                                <div className="flex items-center text-gray-600 text-sm">
-                                    <Phone className="w-4 h-4 mr-2" />
-                                    {contact.phone || 'No phone'}
-                                </div>
-                            </div>
-                            {role === 'head' && (
-                                <button
-                                    onClick={() => setEditContact(contact)}
-                                    className="mt-2 px-3 py-1 bg-gray-200 text-sm rounded hover:bg-gray-300 transition-colors"
-                                >
-                                    Edit
-                                </button>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            </div>
 
             {/* Add Contact Modal */}
             {showAddContactModal && (
