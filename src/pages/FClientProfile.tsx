@@ -332,10 +332,9 @@ export default function FClientProfile() {
         }
     };
 
-    function handleSendDocument(document: any, contactEmail: string) {
-        // Create a mailto link with the document URL in the body
-        const subject = encodeURIComponent(`Document: ${document.file_name}`);
-        const body = encodeURIComponent(
+    async function handleSendDocument(document: any, contactEmail: string) {
+        const subject = `Document: ${document.file_name}`;
+        const body = 
             `Dear Client,\n\n` +
             `Please find below the link to your document:\n\n` +
             `${document.file_url}\n\n` +
@@ -343,10 +342,45 @@ export default function FClientProfile() {
             `Description: ${document.description || 'N/A'}\n\n` +
             `Best regards,\n` +
             `${user?.full_name || 'Your Representative'}\n` +
-            `${user?.email || ''}`
-        );
+            `${user?.email || ''}`;
+    
+        // Check if it's a mobile device
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         
-        window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${contactEmail}&su=${subject}&body=${body}`);
+        if (isMobile) {
+            // For mobile devices
+            try {
+                // First try to download the file
+                const response = await fetch(document.file_url);
+                const blob = await response.blob();
+                
+                // Create object URL for the blob
+                const fileURL = URL.createObjectURL(blob);
+                
+                // Create a temporary anchor element to trigger download
+                const a = document.createElement('a');
+                a.href = fileURL;
+                a.download = document.file_name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                // Then open email client with document info
+                const mailtoLink = `mailto:${contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                window.location.href = mailtoLink;
+                
+                // Clean up
+                setTimeout(() => URL.revokeObjectURL(fileURL), 1000);
+            } catch (error) {
+                console.error('Error handling document:', error);
+                // Fallback to just the email without attachment
+                const mailtoLink = `mailto:${contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                window.location.href = mailtoLink;
+            }
+        } else {
+            // For desktop, use Gmail web interface (note: attachments not possible directly)
+            window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${contactEmail}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+        }
     }
 
     if (!client) return <div className="flex justify-center items-center h-screen">Loading client data...</div>;

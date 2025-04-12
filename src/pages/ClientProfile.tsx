@@ -48,8 +48,8 @@ export default function ClientProfile() {
 
   // Function to send email with quotation details (admin only)
   const handleSendEmail = (email: string, quotationData: any) => {
-    const subject = encodeURIComponent(`Quotation #${quotationData.id} Details`);
-    const body = encodeURIComponent(
+    const subject = `Quotation #${quotationData.id} Details`;
+    const body = 
       `Dear Client,\n\n` +
       `Please find below the quotation details:\n\n` +
       `Amount: ₹${quotationData.amount}/-\n` +
@@ -63,9 +63,19 @@ export default function ClientProfile() {
       }\n\n` +
       `Best regards,\n` +
       `${user?.full_name || 'Your Representative'}\n` +
-      `${user?.email || ''}`
-    );
-    window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${subject}&body=${body}`);
+      `${user?.email || ''}`;
+  
+    // Check if it's a mobile device
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      // For mobile devices, use mailto: link
+      const mailtoLink = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      window.location.href = mailtoLink;
+    } else {
+      // For desktop, use Gmail web interface
+      window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+    }
   };
 
   useEffect(() => {
