@@ -11,7 +11,7 @@ export default function AllClients() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [selectedClient, setSelectedClient] = useState<any>(null);
     const [employees, setEmployees] = useState<any[]>([]);
-        const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+    const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
     const [newClient, setNewClient] = useState({
         name: '',
         company: '',
@@ -21,6 +21,7 @@ export default function AllClients() {
     const navigate = useNavigate();
     const role = useStore((state) => state.role);
     const user = useStore((state) => state.user);
+    const addNotification = useStore((state) => state.addNotification);
 
     useEffect(() => {
         loadClients();
@@ -85,6 +86,15 @@ export default function AllClients() {
             return;
         }
 
+        // Create notification for the new client
+        await addNotification({
+            title: 'New Client Created',
+            description: `A new client "${newClient.name}" from ${newClient.company} has been created.`,
+            scheduled_at: new Date().toISOString(),
+            created_by: user?.id,
+            assigned_to: user?.id
+        });
+
         setClients([...clients, data]);
         setNewClient({ name: '', company: '', address: '' });
         setShowAddModal(false);
@@ -110,9 +120,9 @@ export default function AllClients() {
         loadClients();
     }
 
-        const filteredEmployees = employees.filter(employee =>
-                employee.full_name.toLowerCase().includes(employeeSearchQuery.toLowerCase())
-        );
+    const filteredEmployees = employees.filter(employee =>
+            employee.full_name.toLowerCase().includes(employeeSearchQuery.toLowerCase())
+    );
 
     return (
         <div className="container mx-auto px-4">

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Outlet, Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   Users,
   Building2,
@@ -15,25 +15,48 @@ import { useStore } from '../lib/store';
 
 export default function Layout() {
   const { role } = useStore();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
+  // Close sidebar when navigating to a new page
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [location.pathname]);
+
+  // Listen for sidebar toggle event
+  useEffect(() => {
+    const handleToggleSidebar = () => {
+      setIsSidebarOpen(!isSidebarOpen);
+    };
+
+    document.addEventListener('toggleSidebar', handleToggleSidebar);
+    return () => {
+      document.removeEventListener('toggleSidebar', handleToggleSidebar);
+    };
+  }, [isSidebarOpen]);
+
+  const closeSidebar = () => {
+    setIsSidebarOpen(false);
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex">
-      {/* Sidebar Toggle Button */}
-      <button
-        onClick={toggleSidebar}
-        className="p-2 bg-gray-200 rounded-md shadow-md m-2 focus:outline-none z-50 fixed top-22 left-0"
-      >
-        <Menu className="w-4 h-4" />
-      </button>
+    <div className="min-h-screen bg-gray-100 flex flex-col">
+      {/* Backdrop - appears when sidebar is open */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-30 transition-opacity duration-300"
+          onClick={closeSidebar}
+        />
+      )}
 
       {/* Sidebar */}
-      <div className={`w-64 bg-white shadow-lg ${isSidebarOpen ? 'block' : 'hidden'}`}>
-        <nav className="mt-8">
+      <div 
+        className={`w-64 bg-white shadow-lg transition-all duration-300 ease-in-out ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        } fixed top-16 left-0 h-[calc(100vh-4rem)] z-40`}
+      >
+        <nav className="mt-4">
           {/* Dashboard link is always available */}
           <Link
             to="/dashboard"
@@ -169,7 +192,7 @@ export default function Layout() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto mt-16 transition-all duration-300 ease-in-out">
         <div className="p-8">
           <Outlet />
         </div>

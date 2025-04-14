@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { FileText, Search, Calendar, User, Filter, X, ArrowLeft, Download, Image as ImageIcon } from 'lucide-react';
+import { FileText, Search, Calendar, User, Filter, X, ArrowLeft, Download, Image as ImageIcon, Eye, Maximize2 } from 'lucide-react';
 
 interface PdKitWithDetails {
   id: string;
@@ -33,6 +33,9 @@ export default function AllPdKitsPage() {
   const [typeFilter, setTypeFilter] = useState<'all' | 'start' | 'end'>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [imageLoadErrors, setImageLoadErrors] = useState<Record<string, boolean>>({});
+  const [selectedKit, setSelectedKit] = useState<PdKitWithDetails | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
 
   useEffect(() => {
     const fetchPdKits = async () => {
@@ -165,6 +168,19 @@ export default function AllPdKitsPage() {
     setImageLoadErrors(prev => ({ ...prev, [kitId]: true }));
   };
 
+  const handlePreview = (kit: PdKitWithDetails) => {
+    setSelectedKit(kit);
+    const publicUrl = supabase.storage.from('pd-kits').getPublicUrl(kit.file_path).data.publicUrl;
+    setPreviewUrl(publicUrl);
+    setIsPreviewModalOpen(true);
+  };
+
+  const closePreviewModal = () => {
+    setIsPreviewModalOpen(false);
+    setSelectedKit(null);
+    setPreviewUrl(null);
+  };
+
   const filteredPdKits = pdKits.filter(kit => {
     const matchesSearch = 
       kit.visit.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -189,6 +205,16 @@ export default function AllPdKitsPage() {
   const isImageFile = (filePath: string) => {
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
     return imageExtensions.some(ext => filePath.toLowerCase().endsWith(ext));
+  };
+
+  const isPdfFile = (filePath: string) => {
+    return filePath.toLowerCase().endsWith('.pdf');
+  };
+
+  const getFileIcon = (filePath: string) => {
+    if (isImageFile(filePath)) return <ImageIcon className="w-16 h-16 text-gray-400 mb-2" />;
+    if (isPdfFile(filePath)) return <FileText className="w-16 h-16 text-red-400 mb-2" />;
+    return <FileText className="w-16 h-16 text-gray-400 mb-2" />;
   };
 
   if (loading) {
@@ -323,7 +349,7 @@ export default function AllPdKitsPage() {
               </div>
               
               {/* File preview section */}
-              <div className="w-full h-48 bg-gray-100 flex items-center justify-center relative">
+              <div className="w-full h-48 bg-gray-100 flex items-center justify-center relative group">
                 {isImageFile(kit.file_path) && !imageLoadErrors[kit.id] ? (
                   <img
                     src={`${supabase.storage.from('pd-kits').getPublicUrl(kit.file_path).data.publicUrl}`}
@@ -333,16 +359,24 @@ export default function AllPdKitsPage() {
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center p-4 text-center">
-                    {isImageFile(kit.file_path) ? (
-                      <ImageIcon className="w-16 h-16 text-gray-400 mb-2" />
-                    ) : (
-                      <FileText className="w-16 h-16 text-gray-400 mb-2" />
-                    )}
+                    {getFileIcon(kit.file_path)}
                     <p className="text-sm text-gray-500">
-                      {isImageFile(kit.file_path) ? 'Image preview' : 'Document preview'} not available
+                      {isImageFile(kit.file_path) ? 'Image preview' : isPdfFile(kit.file_path) ? 'PDF document' : 'Document preview'} not available
                     </p>
                   </div>
                 )}
+                
+                {/* Preview overlay */}
+                <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                  <button
+                    onClick={() => handlePreview(kit)}
+                    className="px-3 py-2 bg-white text-gray-800 rounded-lg flex items-center gap-1 hover:bg-gray-100 transition-colors text-sm shadow-md"
+                  >
+                    <Eye className="w-4 h-4" />
+                    Preview
+                  </button>
+                </div>
+                
                 <button
                   onClick={() => handleDownloadFile(kit.file_path, kit.visit.client.name, kit.upload_type)}
                   className="absolute bottom-4 right-4 px-3 py-1 bg-blue-600 text-white rounded-lg flex items-center gap-1 hover:bg-blue-700 transition-colors text-sm"
@@ -363,17 +397,93 @@ export default function AllPdKitsPage() {
                       {new Date(kit.uploaded_at).toLocaleString()}
                     </p>
                   </div>
-                  <button
-                    onClick={() => handleDownloadFile(kit.file_path, kit.visit.client.name, kit.upload_type)}
-                    className="text-sm text-blue-600 hover:underline flex items-center gap-1"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handlePreview(kit)}
+                      className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <Eye className="w-4 h-4" />
+                      Preview
+                    </button>
+                    <button
+                      onClick={() => handleDownloadFile(kit.file_path, kit.visit.client.name, kit.upload_type)}
+                      className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Preview Modal */}
+      {isPreviewModalOpen && selectedKit && previewUrl && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-medium text-gray-800">
+                  {selectedKit.visit.client.name} - {selectedKit.visit.client.company}
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {selectedKit.upload_type === 'start' ? 'Start of Visit' : 'End of Visit'} - {new Date(selectedKit.uploaded_at).toLocaleString()}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleDownloadFile(selectedKit.file_path, selectedKit.visit.client.name, selectedKit.upload_type)}
+                  className="px-3 py-1 bg-blue-600 text-white rounded-lg flex items-center gap-1 hover:bg-blue-700 transition-colors text-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  Download
+                </button>
+                <button
+                  onClick={closePreviewModal}
+                  className="p-1 text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-auto p-4">
+              {isImageFile(selectedKit.file_path) ? (
+                <div className="flex items-center justify-center h-full">
+                  <img
+                    src={previewUrl}
+                    alt={`PD Kit for ${selectedKit.visit.client.name}`}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                </div>
+              ) : isPdfFile(selectedKit.file_path) ? (
+                <div className="h-full">
+                  <iframe
+                    src={`${previewUrl}#toolbar=0`}
+                    className="w-full h-full border-0"
+                    title="PDF Preview"
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+                  {getFileIcon(selectedKit.file_path)}
+                  <p className="text-gray-500 mt-2">
+                    Preview not available for this file type. Please download to view.
+                  </p>
+                  <button
+                    onClick={() => handleDownloadFile(selectedKit.file_path, selectedKit.visit.client.name, selectedKit.upload_type)}
+                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download File
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
