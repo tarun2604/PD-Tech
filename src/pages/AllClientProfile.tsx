@@ -12,7 +12,6 @@ interface ChecklistItem {
   client_id: string;
   item_key: string;
   label: string;
-  assigned?: string;
   completed: boolean;
   notes: string;
   created_at: string;
@@ -27,7 +26,6 @@ export default function AllClientProfile() {
     const [showAddContactModal, setShowAddContactModal] = useState(false);
     const [editContact, setEditContact] = useState<any>(null);
     const role = useStore((state) => state.role);
-    // Removed unused 'user' variable
     const [createdByEmployee, setCreatedByEmployee] = useState<any>(null);
     const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -40,31 +38,18 @@ export default function AllClientProfile() {
     });
 
     const checklistTemplate = [
-        { item_key: 'customer_relation', label: 'Customer Relation' },
-        { item_key: 'appointment', label: 'Appointment', assigned: 'Mr. Ashik' },
-        { item_key: 'repent', label: 'Repent', assigned: 'Mr. Subramani' },
-        { item_key: 'repent_approval', label: 'Repent Approval', assigned: 'Mrs. Shankari / Mrs. Remiga' },
-        { item_key: 'repent_transfer', label: 'Repent Transfer for Performance Allowance', assigned: 'Mr. Dilip Kumar' },
-        { item_key: 'repent_support', label: 'Repent Support to customers', assigned: 'Mr. Subramani' },
-        { item_key: 'expected_sheet', label: 'Expected Sheet', assigned: 'Mrs. Sapna' },
-        { item_key: 'feedback_call', label: 'Feedback Call', assigned: 'Mrs. Remiga' },
-        { item_key: 'dock_harbor', label: 'Dock Harbor/User / Performance Allowance Approval' },
-        { item_key: 'tax_invoice_mobility', label: 'Tax Invoice Mobility', assigned: 'Mr. Sundar' },
-        { item_key: 's_sheets_handbye', label: 'S Sheets Handbye', assigned: 'Mrs. Shankari' },
-        { item_key: 'tax_invoice_tally', label: 'Tax Invoice Tally', assigned: 'Mrs. Sapa' },
-        { item_key: 'g2_checking', label: 'G2 Checking In', assigned: 'Mr. Loganeth' },
-        { item_key: 'tax_invoice_approval', label: 'Tax Invoice Approval', assigned: 'Mrs. Shankari' },
-        { item_key: 's_sheets_printout', label: 'S Sheets Printout', assigned: 'Mr. Subramani' },
-        { item_key: 'tax_invoice_email', label: 'Tax Invoice Email', assigned: 'Mr. Sundar' },
-        { item_key: 'daily_expenses', label: 'Daily Expenses Monitor', assigned: 'Mrs. Sapna' },
-        { item_key: 'payment_reminder', label: 'Payment Reminder', assigned: 'Mr. Sundar' },
-        { item_key: 'site_advance_payment', label: 'Site Advance Payment', assigned: 'Mr. Dilip Kumar' },
-        { item_key: 'payment_received', label: 'Payment Received', assigned: 'Mrs. Shankari' },
-        { item_key: 'site_advance_approval', label: 'Site Advance Approval', assigned: 'Mr. Subramani' },
-        { item_key: 'site_budget', label: 'Site Budget', assigned: 'Mrs. Sapna' },
-        { item_key: 'r1_checking', label: 'R1 Checking On', assigned: 'Mr. Zhailaan / Mr. Keyn' },
-        { item_key: 'm5_chaos', label: 'M5 Chaos Last Verified', assigned: 'Mr. Subramani' },
-        { item_key: 'toolbox_talk', label: 'Tool Box Talk', assigned: 'Mrs. Remiga' },
+        { item_key: 'marketing_presentation', label: 'Marketing Presentation' },
+        { item_key: 'quotation_preparation', label: 'Quotation Preparation' },
+        { item_key: 'quotation_approval', label: 'Quotation Approval' },
+        { item_key: 'quotation_email_send', label: 'Quotation Email send' },
+        { item_key: 'po_received', label: 'PO Received / Testing Schedule' },
+        { item_key: 'site_budget', label: 'Site Budget' },
+        { item_key: 'site_advance_payment', label: 'Site Advance Payment' },
+        { item_key: 'report', label: 'Report' },
+        { item_key: 'report_submit', label: 'Report Submit to customer' },
+        { item_key: 'tax_invoice_manual', label: 'Tax Invoice Manually' },
+        { item_key: 'tax_invoice_approval', label: 'Tax Invoice Approval' },
+        { item_key: 'payment_received', label: 'Payment Received' },
     ];
 
     useEffect(() => {
@@ -93,7 +78,6 @@ export default function AllClientProfile() {
                     client_id: id,
                     item_key: templateItem.item_key,
                     label: templateItem.label,
-                    assigned: templateItem.assigned,
                     completed: false,
                     notes: '',
                     created_at: now,
@@ -182,7 +166,6 @@ export default function AllClientProfile() {
                 end: currentCompleted
             });
             
-            // Format the duration in a human-readable way
             const parts = [];
             if (duration.days) parts.push(`${duration.days}d`);
             if (duration.hours) parts.push(`${duration.hours}h`);
@@ -196,6 +179,7 @@ export default function AllClientProfile() {
             return 'Time data error';
         }
     };
+
     const getStepDuration = (item: ChecklistItem) => {
         if (!item.completed || !item.created_at || !item.completed_at) {
             return null;
@@ -429,9 +413,6 @@ export default function AllClientProfile() {
                                         <div className="flex items-start justify-between">
                                             <label htmlFor={item.item_key} className="block text-gray-800">
                                                 {item.label}
-                                                {item.assigned && (
-                                                    <span className="text-sm text-gray-500 ml-2">({item.assigned})</span>
-                                                )}
                                             </label>
                                             {item.completed && item.completed_at && (
                                                 <span className="text-xs text-gray-500">
