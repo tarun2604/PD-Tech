@@ -3,9 +3,8 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
 import { Plus, Phone, Mail, Check, Clock } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { intervalToDuration } from 'date-fns';
-import { parseISO } from 'date-fns';
+import { formatDistance } from 'date-fns/formatDistance';
+import { parseISO } from 'date-fns/parseISO';
 
 interface ChecklistItem {
   id: string;
@@ -26,6 +25,7 @@ export default function AllClientProfile() {
     const [showAddContactModal, setShowAddContactModal] = useState(false);
     const [editContact, setEditContact] = useState<any>(null);
     const role = useStore((state) => state.role);
+    const user = useStore((state) => state.user);
     const [createdByEmployee, setCreatedByEmployee] = useState<any>(null);
     const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -137,74 +137,23 @@ export default function AllClientProfile() {
 
     const getTimeBetweenSteps = (currentIndex: number) => {
         if (currentIndex === 0) return null;
-        
         const currentItem = checklist[currentIndex];
-        const prevItem = checklist[currentIndex - 1];
+        const previousItem = checklist[currentIndex - 1];
         
-        if (!prevItem?.completed_at) {
-            return 'Waiting for previous step to complete';
-        }
+        if (!currentItem.completed_at || !previousItem.completed_at) return null;
         
-        if (!currentItem?.completed_at) {
-            return 'Current step not completed yet';
-        }
+        const currentDate = parseISO(currentItem.completed_at);
+        const previousDate = parseISO(previousItem.completed_at);
         
-        try {
-            const prevCompleted = parseISO(prevItem.completed_at);
-            const currentCompleted = parseISO(currentItem.completed_at);
-            
-            if (isNaN(prevCompleted.getTime())) {
-                return 'Invalid previous step completion time';
-            }
-            
-            if (isNaN(currentCompleted.getTime())) {
-                return 'Invalid current step completion time';
-            }
-            
-            const duration = intervalToDuration({
-                start: prevCompleted,
-                end: currentCompleted
-            });
-            
-            const parts = [];
-            if (duration.days) parts.push(`${duration.days}d`);
-            if (duration.hours) parts.push(`${duration.hours}h`);
-            if (duration.minutes) parts.push(`${duration.minutes}m`);
-            
-            const timeBetween = parts.join(' ');
-            
-            return `Completed ${timeBetween || 'a few moments'} after previous step`;
-        } catch (error) {
-            console.error('Error calculating time between steps:', error);
-            return 'Time data error';
-        }
+        return formatDistance(currentDate, new Date(), { addSuffix: true });
     };
 
     const getStepDuration = (item: ChecklistItem) => {
-        if (!item.completed || !item.created_at || !item.completed_at) {
-            return null;
-        }
+        if (!item.completed_at) return null;
+        const completedDate = parseISO(item.completed_at);
+        const createdDate = parseISO(item.created_at);
         
-        try {
-            const start = parseISO(item.created_at);
-            const end = parseISO(item.completed_at);
-            
-            if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-                return 'Invalid time data';
-            }
-            
-            const duration = intervalToDuration({ start, end });
-            
-            const parts = [];
-            if (duration.days) parts.push(`${duration.days}d`);
-            if (duration.hours) parts.push(`${duration.hours}h`);
-            if (duration.minutes) parts.push(`${duration.minutes}m`);
-            
-            return parts.join(' ') || 'Less than a minute';
-        } catch (error) {
-            console.error('Error calculating duration:', error);
-            return 'Duration error';
-        }
+        return formatDistance(completedDate, new Date(), { addSuffix: true });
     };
 
     const handleCheckboxChange = async (itemKey: string) => {
@@ -221,6 +170,18 @@ export default function AllClientProfile() {
         const updatedItem = updatedChecklist.find(item => item.item_key === itemKey);
         if (updatedItem) {
             await saveChecklistItem(updatedItem);
+            
+            // Send notification when a step is completed
+            if (updatedItem.completed) {
+                const addNotification = useStore.getState().addNotification;
+                await addNotification({
+                    title: 'Step Completed',
+                    description: `Step "${updatedItem.label}" has been completed for client "${client?.name}" from ${client?.company}.`,
+                    scheduled_at: new Date().toISOString(),
+                    created_by: user?.id || '',
+                    assigned_to: user?.id || ''
+                });
+            }
         }
     };
 
@@ -416,7 +377,7 @@ export default function AllClientProfile() {
                                             </label>
                                             {item.completed && item.completed_at && (
                                                 <span className="text-xs text-gray-500">
-                                                    Completed: {formatDistanceToNow(new Date(item.completed_at), { addSuffix: true })}
+                                                    Completed: {formatDistance(parseISO(item.completed_at), new Date(), { addSuffix: true })}
                                                 </span>
                                             )}
                                         </div>

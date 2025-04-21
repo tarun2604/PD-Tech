@@ -79,6 +79,57 @@ export function NotificationBell({ userId }: NotificationBellProps) {
     };
   }, [userId]);
 
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 30000); // Refresh every 30 seconds
+
+    // Set up realtime subscription
+    const channel = supabase
+      .channel('notifications_bell')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'notifications',
+        filter: `or(assigned_to.eq.${userId},created_by.eq.${userId})`
+      }, (payload) => {
+        console.log('Realtime notification received:', payload);
+        
+        // Ignore DELETE events
+        if (payload.eventType === 'DELETE') {
+          setNotifications(prev => prev.filter(n => n.id !== payload.old.id));
+          return;
+        }
+        
+        // Handle INSERT and UPDATE events
+        if (payload.eventType === 'INSERT') {
+          const newNotification = payload.new as Notification;
+          setNotifications(prev => [newNotification, ...prev]);
+          if (!newNotification.is_delivered) {
+            setUnreadCount(count => count + 1);
+          }
+        } else if (payload.eventType === 'UPDATE') {
+          const updatedNotification = payload.new as Notification;
+          setNotifications(prev => 
+            prev.map(notification => 
+              notification.id === updatedNotification.id ? updatedNotification : notification
+            )
+          );
+          // Update unread count if delivery status changed
+          if (payload.old.is_delivered !== updatedNotification.is_delivered) {
+            setUnreadCount(count => updatedNotification.is_delivered ? count - 1 : count + 1);
+          }
+        }
+      })
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+      });
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
   async function loadNotifications() {
     setLoading(true);
     try {
@@ -88,9 +139,17 @@ export function NotificationBell({ userId }: NotificationBellProps) {
         .or(`assigned_to.eq.${userId},created_by.eq.${userId}`)
         .order('scheduled_at', { ascending: false });
 
-      if (error) throw error;
-      setNotifications(data || []);
-      setUnreadCount(data?.filter(n => !n.is_delivered).length || 0);
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+      
+      if (data) {
+        setNotifications(data);
+        const unreadCount = data.filter(n => !n.is_delivered).length;
+        setUnreadCount(unreadCount);
+        console.log('Loaded notifications:', data.length, 'Unread:', unreadCount);
+      }
     } catch (error) {
       console.error('Error loading notifications:', error);
     } finally {
@@ -117,6 +176,30 @@ export function NotificationBell({ userId }: NotificationBellProps) {
         .update({ is_delivered: true })
         .in('id', unreadIds);
       loadNotifications();
+    }
+  }
+
+  async function deleteAllNotifications() {
+    if (notifications.length === 0) return;
+    
+    try {
+      const notificationIds = notifications.map(n => n.id);
+      
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .in('id', notificationIds);
+      
+      if (error) {
+        console.error('Error deleting notifications:', error);
+        return;
+      }
+      
+      setNotifications([]);
+      setUnreadCount(0);
+      console.log('All notifications deleted successfully');
+    } catch (error) {
+      console.error('Error deleting notifications:', error);
     }
   }
 
@@ -148,14 +231,26 @@ export function NotificationBell({ userId }: NotificationBellProps) {
         <div className="absolute right-0 mt-2 w-72 bg-white rounded-md shadow-lg z-50 border border-gray-200">
           <div className="p-3 border-b border-gray-200 flex justify-between items-center">
             <h3 className="font-medium text-gray-800">Notifications</h3>
-            {unreadCount > 0 && (
-              <button 
-                onClick={markAllAsRead}
-                className="text-blue-600 text-xs hover:underline"
-              >
-                Mark all as read
-              </button>
-            )}
+            <div className="flex gap-2">
+              {notifications.length > 0 && (
+                <button 
+                  onClick={deleteAllNotifications}
+                  className="text-red-600 text-xs hover:underline"
+                  title="Delete all notifications"
+                >
+                  Delete All
+                </button>
+              )}
+              {unreadCount > 0 && (
+                <button 
+                  onClick={markAllAsRead}
+                  className="text-blue-600 text-xs hover:underline"
+                  title="Mark all notifications as read"
+                >
+                  Mark all as read
+                </button>
+              )}
+            </div>
           </div>
           
           <div className="max-h-60 overflow-y-auto">
