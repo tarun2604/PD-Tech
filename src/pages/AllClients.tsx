@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, Search } from 'lucide-react';
+import { Plus, Users, Search, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
 
@@ -18,6 +18,7 @@ export default function AllClients() {
         address: '',
     });
     const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
+    const [isCreatingClient, setIsCreatingClient] = useState(false); // New loading state
     const navigate = useNavigate();
     const role = useStore((state) => state.role);
     const user = useStore((state) => state.user);
@@ -75,29 +76,35 @@ export default function AllClients() {
 
     async function handleCreateClient(e: React.FormEvent) {
         e.preventDefault();
-        const { data, error } = await supabase
-            .from('clients')
-            .insert([{ ...newClient, created_by: user?.id, status: 'ongoing' }])
-            .select()
-            .single();
+        setIsCreatingClient(true); // Start loading
+        
+        try {
+            const { data, error } = await supabase
+                .from('clients')
+                .insert([{ ...newClient, created_by: user?.id, status: 'ongoing' }])
+                .select()
+                .single();
 
-        if (error) {
-            console.error('Error creating client:', error);
-            return;
+            if (error) {
+                console.error('Error creating client:', error);
+                return;
+            }
+
+            // Create notification for the new client
+            await addNotification({
+                title: 'New Client Created',
+                description: `A new client "${newClient.name}" from ${newClient.company} has been created.`,
+                scheduled_at: new Date().toISOString(),
+                created_by: user?.id,
+                assigned_to: user?.id
+            });
+
+            setClients([...clients, data]);
+            setNewClient({ name: '', company: '', address: '' });
+            setShowAddModal(false);
+        } finally {
+            setIsCreatingClient(false); // End loading
         }
-
-        // Create notification for the new client
-        await addNotification({
-            title: 'New Client Created',
-            description: `A new client "${newClient.name}" from ${newClient.company} has been created.`,
-            scheduled_at: new Date().toISOString(),
-            created_by: user?.id,
-            assigned_to: user?.id
-        });
-
-        setClients([...clients, data]);
-        setNewClient({ name: '', company: '', address: '' });
-        setShowAddModal(false);
     }
 
     async function handleAssignEmployees() {
@@ -217,14 +224,23 @@ export default function AllClients() {
                                     type="button"
                                     onClick={() => setShowAddModal(false)}
                                     className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                                    disabled={isCreatingClient}
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
-                                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center justify-center"
+                                    disabled={isCreatingClient}
                                 >
-                                    Create
+                                    {isCreatingClient ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            Creating...
+                                        </>
+                                    ) : (
+                                        'Create'
+                                    )}
                                 </button>
                             </div>
                         </form>
