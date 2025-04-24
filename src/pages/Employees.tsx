@@ -326,11 +326,11 @@ export default function Employees() {
                   }
                   className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="employee">Employee</option>
-                  <option value="head">Head</option>
+                  <option value="employee">Marketing Employee</option>
+                  <option value="head">Marketing Head</option>
                   <option value="admin">Admin</option>
-                  <option value="e.employee">E.Employee</option>
-                  <option value="e.head">E.Head</option>
+                  <option value="e.employee">Execution Employee</option>
+                  <option value="e.head">Execution Head</option>
                   <option value="finance.employee">Finance Employee</option>
                 </select>
               </div>
@@ -401,11 +401,11 @@ export default function Employees() {
                   }
                   className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="employee">Employee</option>
-                  <option value="head">Head</option>
+                  <option value="employee">Marketing Employee</option>
+                  <option value="head">Marketing Head</option>
                   <option value="admin">Admin</option>
-                  <option value="e.employee">E.Employee</option>
-                  <option value="e.head">E.Head</option>
+                  <option value="e.employee">Execution Employee</option>
+                  <option value="e.head">Execution Head</option>
                   <option value="finance.employee">Finance Employee</option>
                 </select>
               </div>
