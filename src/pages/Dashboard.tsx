@@ -15,7 +15,6 @@ interface DashboardStats {
   totalQuotations: number;
   totalSiteVisits: number;
   totalpos: number;
-  pendingNotifications: number;
   totalInvoices?: number;
   totalPayments?: number;
   totalProjects?: number;
@@ -41,7 +40,6 @@ export default function Dashboard() {
     totalQuotations: 0,
     totalSiteVisits: 0,
     totalpos: 0,
-    pendingNotifications: 0,
     totalInvoices: 0,
     totalPayments: 0,
     totalProjects: 0,
@@ -49,7 +47,6 @@ export default function Dashboard() {
   });
   const [recentQuotations, setRecentQuotations] = useState<any[]>([]);
   const [recentSiteVisits, setRecentSiteVisits] = useState<any[]>([]);
-  const [recentNotifications, setRecentNotifications] = useState<any[]>([]);
   const [recentInvoices, setRecentInvoices] = useState<any[]>([]);
   const [recentPayments, setRecentPayments] = useState<any[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<NotificationEvent[]>([]);
@@ -71,7 +68,6 @@ export default function Dashboard() {
         { table: 'employees', channel: 'employees_changes' },
         { table: 'quotations', channel: 'quotations_changes' },
         { table: 'site_visit', channel: 'site_visits_changes' },
-        { table: 'notifications', channel: 'notifications_changes' },
         { table: 'invoices', channel: 'invoices_changes' },
         { table: 'payments', channel: 'payments_changes' },
         { table: 'projects', channel: 'projects_changes' },
@@ -124,7 +120,6 @@ export default function Dashboard() {
           { count: quotationCount },
           { count: siteVisitCount },
           { count: posCount },
-          { count: notificationCount },
           { count: projectCount },
           { count: invoiceCount },
           { count: paymentCount },
@@ -134,7 +129,6 @@ export default function Dashboard() {
           supabase.from('quotations').select('*', { count: 'exact', head: true }),
           supabase.from('site_visit').select('*', { count: 'exact', head: true }),
           supabase.from('quotations').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
-          supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_delivered', false),
           role === 'e.head' ? supabase.from('projects').select('*', { count: 'exact', head: true }) : { count: 0 },
           role === 'e.head' ? supabase.from('invoices').select('*', { count: 'exact', head: true }) : { count: 0 },
           role === 'e.head' ? supabase.from('payments').select('*', { count: 'exact', head: true }) : { count: 0 },
@@ -147,7 +141,6 @@ export default function Dashboard() {
           totalQuotations: quotationCount || 0,
           totalSiteVisits: siteVisitCount || 0,
           totalpos: posCount || 0,
-          pendingNotifications: notificationCount || 0,
           totalProjects: projectCount || 0,
           totalInvoices: invoiceCount || 0,
           totalPayments: paymentCount || 0,
@@ -157,22 +150,15 @@ export default function Dashboard() {
         const [
           { count: invoiceCount },
           { count: paymentCount },
-          { count: notificationCount },
         ] = await Promise.all([
           supabase.from('invoices').select('*', { count: 'exact', head: true }),
           supabase.from('payments').select('*', { count: 'exact', head: true }),
-          supabase
-            .from('notifications')
-            .select('*', { count: 'exact', head: true })
-            .or(`assigned_to.eq.${user?.id},target_role.eq.${role}`)
-            .eq('is_delivered', false),
         ]);
 
         setStats(prev => ({
           ...prev,
           totalInvoices: invoiceCount || 0,
           totalPayments: paymentCount || 0,
-          pendingNotifications: notificationCount || 0,
           loading: false,
         }));
       } else {
@@ -182,7 +168,6 @@ export default function Dashboard() {
           { count: quotationCount },
           { count: siteVisitCount },
           { count: posCount },
-          { count: notificationCount },
           { count: projectCount },
         ] = await Promise.all([
           supabase
@@ -202,11 +187,6 @@ export default function Dashboard() {
             .select('*', { count: 'exact', head: true })
             .eq('employee_id', user?.id)
             .eq('status', 'approved'),
-          supabase
-            .from('notifications')
-            .select('*', { count: 'exact', head: true })
-            .or(`assigned_to.eq.${user?.id},target_role.eq.${role}`)
-            .eq('is_delivered', false),
           role === 'e.employee' ? 
             supabase
               .from('project_assignments')
@@ -222,7 +202,6 @@ export default function Dashboard() {
           totalQuotations: quotationCount || 0,
           totalSiteVisits: siteVisitCount || 0,
           totalpos: posCount || 0,
-          pendingNotifications: notificationCount || 0,
           totalProjects: projectCount || 0,
           loading: false,
         }));
@@ -300,25 +279,19 @@ export default function Dashboard() {
         setRecentPayments(payments || []);
       }
 
-      // Load notifications and calendar events for all roles
-      const notificationsQuery = role === 'head' || role === 'admin' || role === 'e.head' 
-        ? supabase.from('notifications').select('*').order('scheduled_at', { ascending: false }).limit(5)
-        : supabase.from('notifications')
-            .select('*')
-            .or(`assigned_to.eq.${user?.id},target_role.eq.${role}`)
-            .order('scheduled_at', { ascending: false })
-            .limit(5);
-
-      const { data: notifications } = await notificationsQuery;
-
-      setRecentNotifications(notifications || []);
+      // Load calendar events for all roles
+      const { data: notifications } = await supabase
+        .from('notifications')
+        .select('*')
+        .order('scheduled_at', { ascending: false })
+        .limit(20);
 
       // Format events for calendar
       const events = (notifications || []).map(notif => ({
         id: notif.id,
         title: notif.title,
         start: new Date(notif.scheduled_at),
-        end: new Date(new Date(notif.scheduled_at).getTime() + 60 * 60 * 1000), // 1 hour duration by default
+        end: new Date(new Date(notif.scheduled_at).getTime() + 60 * 60 * 1000),
         description: notif.description,
         assignedTo: notif.assigned_to,
         isDelivered: notif.is_delivered,
@@ -337,9 +310,9 @@ export default function Dashboard() {
   }
 
   const eventStyleGetter = (event: NotificationEvent) => {
-    let backgroundColor = event.isDelivered ? '#d1fae5' : '#fee2e2'; // green for delivered, red for pending
+    let backgroundColor = event.isDelivered ? '#d1fae5' : '#fee2e2';
     if (new Date(event.start) > new Date()) {
-      backgroundColor = '#bfdbfe'; // blue for future events
+      backgroundColor = '#bfdbfe';
     }
     
     return {
@@ -615,17 +588,6 @@ export default function Dashboard() {
             {role === 'e.head' && renderEHeadStats()}
             {role === 'e.employee' && renderEEmployeeStats()}
 
-            {/* Common stats for all roles */}
-            <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm md:text-base text-gray-500">Pending Tasks</p>
-                  <h3 className="text-xl md:text-2xl font-bold text-gray-800">{stats.pendingNotifications}</h3>
-                </div>
-                <Bell className="w-6 h-6 md:w-8 md:h-8 text-orange-600" />
-              </div>
-            </div>
-
             {(role === 'e.employee' || role === 'employee') && (
               <>
                 <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
@@ -722,42 +684,6 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
-
-                {/* Recent Notifications */}
-                <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
-                  <h2 className="text-lg md:text-xl font-semibold text-gray-800 mb-3 md:mb-4 flex items-center">
-                    <Bell className="w-4 h-4 md:w-5 md:h-5 mr-2 text-orange-600" />
-                    Recent Tasks
-                  </h2>
-                  <div className="space-y-3 md:space-y-4">
-                    {recentNotifications.map((notification) => (
-                      <div key={notification.id} className="border-b pb-3 md:pb-4 last:border-b-0">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="text-sm md:text-base font-medium text-gray-800">
-                              {notification.title}
-                            </p>
-                            <p className="text-xs md:text-sm text-gray-500">
-                              {notification.description}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              {moment(notification.scheduled_at).format('MMM D, h:mm A')}
-                            </p>
-                          </div>
-                          <span
-                            className={`px-2 py-1 text-xs rounded-full ${
-                              notification.is_delivered
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-red-100 text-red-800'
-                            }`}
-                          >
-                            {notification.is_delivered ? 'Completed' : 'Pending'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </>
             )}
           </div>
