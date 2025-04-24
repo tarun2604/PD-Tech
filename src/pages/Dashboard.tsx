@@ -19,6 +19,8 @@ interface DashboardStats {
   totalInvoices?: number;
   totalPayments?: number;
   totalProjects?: number;
+  loading?: boolean;
+  error?: string;
 }
 
 interface NotificationEvent {
@@ -43,6 +45,7 @@ export default function Dashboard() {
     totalInvoices: 0,
     totalPayments: 0,
     totalProjects: 0,
+    loading: true,
   });
   const [recentQuotations, setRecentQuotations] = useState<any[]>([]);
   const [recentSiteVisits, setRecentSiteVisits] = useState<any[]>([]);
@@ -57,36 +60,64 @@ export default function Dashboard() {
 
   const isMobile = useMediaQuery({ maxWidth: 767 });
   const isTablet = useMediaQuery({ minWidth: 768, maxWidth: 1023 });
-  // Removed unused variable 'isDesktop'
 
   useEffect(() => {
+    let isMounted = true;
+    const subscriptions: any[] = [];
+
+    async function setupSubscriptions() {
+      const channels = [
+        { table: 'clients', channel: 'clients_changes' },
+        { table: 'employees', channel: 'employees_changes' },
+        { table: 'quotations', channel: 'quotations_changes' },
+        { table: 'site_visit', channel: 'site_visits_changes' },
+        { table: 'notifications', channel: 'notifications_changes' },
+        { table: 'invoices', channel: 'invoices_changes' },
+        { table: 'payments', channel: 'payments_changes' },
+        { table: 'projects', channel: 'projects_changes' },
+      ];
+
+      for (const { table, channel } of channels) {
+        const subscription = supabase
+          .channel(channel)
+          .on('postgres_changes', 
+            { 
+              event: '*', 
+              schema: 'public', 
+              table 
+            }, 
+            () => {
+              if (isMounted) loadDashboardData();
+            }
+          )
+          .subscribe();
+        
+        subscriptions.push(subscription);
+      }
+    }
+
+    setupSubscriptions();
     loadDashboardData();
+
+    return () => {
+      isMounted = false;
+      subscriptions.forEach(sub => {
+        supabase.removeChannel(sub);
+      });
+    };
   }, [role, user?.id]);
 
   async function loadDashboardData() {
     try {
-      // Common queries for all roles
-      // Removed unused variable 'commonQueries'
-      
+      setStats(prev => ({ ...prev, loading: true }));
+
+      if (!role) {
+        console.warn('User role not defined');
+        return;
+      }
+
       // Load stats based on role
       if (role === 'head' || role === 'admin' || role === 'e.head') {
-        const queries = [
-          supabase.from('clients').select('*', { count: 'exact', head: true }),
-          supabase.from('employees').select('*', { count: 'exact', head: true }),
-          supabase.from('quotations').select('*', { count: 'exact', head: true }),
-          supabase.from('site_visit').select('*', { count: 'exact', head: true }),
-          supabase.from('quotations').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
-          supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_delivered', false),
-        ];
-
-        if (role === 'e.head') {
-          queries.push(
-            supabase.from('projects').select('*', { count: 'exact', head: true }),
-            supabase.from('invoices').select('*', { count: 'exact', head: true }),
-            supabase.from('payments').select('*', { count: 'exact', head: true })
-          );
-        }
-
         const [
           { count: clientCount },
           { count: employeeCount },
@@ -97,7 +128,17 @@ export default function Dashboard() {
           { count: projectCount },
           { count: invoiceCount },
           { count: paymentCount },
-        ] = await Promise.all(queries);
+        ] = await Promise.all([
+          supabase.from('clients').select('*', { count: 'exact', head: true }),
+          supabase.from('employees').select('*', { count: 'exact', head: true }),
+          supabase.from('quotations').select('*', { count: 'exact', head: true }),
+          supabase.from('site_visit').select('*', { count: 'exact', head: true }),
+          supabase.from('quotations').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
+          supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_delivered', false),
+          role === 'e.head' ? supabase.from('projects').select('*', { count: 'exact', head: true }) : { count: 0 },
+          role === 'e.head' ? supabase.from('invoices').select('*', { count: 'exact', head: true }) : { count: 0 },
+          role === 'e.head' ? supabase.from('payments').select('*', { count: 'exact', head: true }) : { count: 0 },
+        ]);
 
         setStats(prev => ({
           ...prev,
@@ -110,6 +151,7 @@ export default function Dashboard() {
           totalProjects: projectCount || 0,
           totalInvoices: invoiceCount || 0,
           totalPayments: paymentCount || 0,
+          loading: false,
         }));
       } else if (role === 'finance.employee') {
         const [
@@ -117,12 +159,8 @@ export default function Dashboard() {
           { count: paymentCount },
           { count: notificationCount },
         ] = await Promise.all([
-          supabase
-            .from('invoices')
-            .select('*', { count: 'exact', head: true }),
-          supabase
-            .from('payments')
-            .select('*', { count: 'exact', head: true }),
+          supabase.from('invoices').select('*', { count: 'exact', head: true }),
+          supabase.from('payments').select('*', { count: 'exact', head: true }),
           supabase
             .from('notifications')
             .select('*', { count: 'exact', head: true })
@@ -135,6 +173,7 @@ export default function Dashboard() {
           totalInvoices: invoiceCount || 0,
           totalPayments: paymentCount || 0,
           pendingNotifications: notificationCount || 0,
+          loading: false,
         }));
       } else {
         // For e.employee and employee roles
@@ -185,6 +224,7 @@ export default function Dashboard() {
           totalpos: posCount || 0,
           pendingNotifications: notificationCount || 0,
           totalProjects: projectCount || 0,
+          loading: false,
         }));
       }
 
@@ -288,6 +328,11 @@ export default function Dashboard() {
 
     } catch (error) {
       console.error('Error loading dashboard data:', error);
+      setStats(prev => ({
+        ...prev,
+        loading: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }));
     }
   }
 
@@ -461,6 +506,28 @@ export default function Dashboard() {
       </button>
     </div>
   );
+
+  if (stats.loading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (stats.error) {
+    return (
+      <div className="p-4 bg-red-100 text-red-700 rounded-lg">
+        <p>Error loading dashboard data: {stats.error}</p>
+        <button 
+          onClick={loadDashboardData}
+          className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 md:space-y-6 p-2 md:p-4">
