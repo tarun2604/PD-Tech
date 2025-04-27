@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Mail, Phone, Calendar, Search, Edit, Trash2 } from 'lucide-react';
+import { Plus, Mail, Phone, Calendar, Search, Edit, Trash2, UserPlus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { logActions } from '../lib/logging';
+import { useStore } from '../lib/store';
 
 export default function Employees() {
+  const store = useStore();
+  const role = store.role;
   const [employees, setEmployees] = useState<any[]>([]);
+  const [inactiveEmployees, setInactiveEmployees] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [currentEmployee, setCurrentEmployee] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'active' | 'inactive'>('active');
   const [newEmployee, setNewEmployee] = useState({
     email: '',
     password: '',
@@ -14,17 +20,23 @@ export default function Employees() {
     role: 'employee',
   });
   const [loading, setLoading] = useState(false);
+  const [restoringEmployeeId, setRestoringEmployeeId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredEmployees, setFilteredEmployees] = useState<any[]>([]);
+  const [filteredInactiveEmployees, setFilteredInactiveEmployees] = useState<any[]>([]);
 
   useEffect(() => {
     loadEmployees();
-  }, []);
+    if (role === 'admin') {
+      loadInactiveEmployees();
+    }
+  }, [role]);
 
   useEffect(() => {
     filterEmployees();
-  }, [employees, searchQuery]);
+    filterInactiveEmployees();
+  }, [employees, inactiveEmployees, searchQuery]);
 
   async function loadEmployees() {
     setLoading(true);
@@ -32,6 +44,7 @@ export default function Employees() {
       const { data, error } = await supabase
         .from('employees')
         .select('*')
+        .eq('is_active', true)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -45,101 +58,134 @@ export default function Employees() {
     }
   }
 
-  async function handleCreateEmployee(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
+  async function loadInactiveEmployees() {
     try {
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: newEmployee.email,
-        password: newEmployee.password,
-      });
-
-      if (authError) throw authError;
-
-      // Create employee record
-      const { error: employeeError } = await supabase
+      const { data, error } = await supabase
         .from('employees')
-        .insert([
-          {
-            id: authData.user?.id,
-            email: newEmployee.email,
-            full_name: newEmployee.full_name,
-            role: newEmployee.role,
-          },
-        ]);
-
-      if (employeeError) throw employeeError;
-
-      setNewEmployee({
-        email: '',
-        password: '',
-        full_name: '',
-        role: 'employee',
-      });
-      setShowAddModal(false);
-      loadEmployees();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleUpdateEmployee(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      if (!currentEmployee) return;
-
-      // Update employee record
-      const { error } = await supabase
-        .from('employees')
-        .update({
-          full_name: currentEmployee.full_name,
-          role: currentEmployee.role,
-        })
-        .eq('id', currentEmployee.id);
+        .select('*')
+        .eq('is_active', false)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      setShowEditModal(false);
-      loadEmployees();
+      setInactiveEmployees(data || []);
+      setFilteredInactiveEmployees(data || []);
     } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      console.error('Error loading inactive employees:', err);
     }
   }
 
-  async function handleDeleteEmployee(id: string) {
-    if (!window.confirm('Are you sure you want to delete this employee?')) return;
-
-    setLoading(true);
+  const handleAddEmployee = async (employeeData: any) => {
     try {
-      // Delete employee record
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('employees')
-        .delete()
-        .eq('id', id);
+        .insert([{
+          name: employeeData.name,
+          email: employeeData.email,
+          role: employeeData.role,
+          is_active: true
+        }])
+        .select()
+        .single();
 
       if (error) throw error;
 
-      // Delete auth user (optional - be careful with this)
-      // const { error: authError } = await supabase.auth.admin.deleteUser(id);
-      // if (authError) throw authError;
+      if (data) {
+        // Log the employee addition
+        if (store.user?.id) {
+          await logActions.employeeAdded(
+            store.user.id,
+            data.id,
+            data.name
+          );
+        }
 
-      loadEmployees();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+        // Refresh employees list
+        loadEmployees();
+        setShowAddModal(false);
+      }
+    } catch (error) {
+      console.error('Error adding employee:', error);
     }
-  }
+  };
+
+  const handleUpdateEmployee = async (employeeId: string, updates: any) => {
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update(updates)
+        .eq('id', employeeId);
+
+      if (error) throw error;
+
+      // Log the employee update
+      if (store.user?.id) {
+        await logActions.employeeUpdated(
+          store.user.id,
+          employeeId,
+          updates.name || 'Unknown Employee',
+          JSON.stringify(updates)
+        );
+      }
+
+      // Refresh employees list
+      loadEmployees();
+    } catch (error) {
+      console.error('Error updating employee:', error);
+    }
+  };
+
+  const handleDeactivateEmployee = async (employeeId: string) => {
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({ is_active: false })
+        .eq('id', employeeId);
+
+      if (error) throw error;
+
+      // Log the employee deactivation
+      if (store.user?.id) {
+        await logActions.employeeDeactivated(
+          store.user.id,
+          employeeId
+        );
+      }
+
+      // Refresh employees list
+      loadEmployees();
+    } catch (error) {
+      console.error('Error deactivating employee:', error);
+    }
+  };
+
+  const handleRestoreEmployee = async (employeeId: string) => {
+    setRestoringEmployeeId(employeeId);
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .update({ is_active: true })
+        .eq('id', employeeId);
+
+      if (error) throw error;
+
+      // Log the employee restoration
+      if (store.user?.id) {
+        await logActions.employeeRestored(
+          store.user.id,
+          employeeId
+        );
+      }
+
+      // Refresh both lists
+      loadEmployees();
+      loadInactiveEmployees();
+    } catch (error) {
+      console.error('Error restoring employee:', error);
+    } finally {
+      setRestoringEmployeeId(null);
+    }
+  };
 
   const filterEmployees = () => {
     if (!searchQuery) {
@@ -153,6 +199,20 @@ export default function Employees() {
       employee.role.toLowerCase().includes(searchQuery.toLowerCase())
     );
     setFilteredEmployees(filtered);
+  };
+
+  const filterInactiveEmployees = () => {
+    if (!searchQuery) {
+      setFilteredInactiveEmployees(inactiveEmployees);
+      return;
+    }
+
+    const filtered = inactiveEmployees.filter((employee) =>
+      employee.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      employee.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      employee.role.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    setFilteredInactiveEmployees(filtered);
   };
 
   const openEditModal = (employee: any) => {
@@ -185,6 +245,34 @@ export default function Employees() {
         </div>
       </div>
 
+      {/* Tab Navigation - Only show for admin */}
+      {role === 'admin' && (
+        <div className="mb-6 border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab('active')}
+              className={`${
+                activeTab === 'active'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Active Employees
+            </button>
+            <button
+              onClick={() => setActiveTab('inactive')}
+              className={`${
+                activeTab === 'inactive'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Inactive Employees
+            </button>
+          </nav>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 text-red-600 p-3 rounded mb-4">
           {error}
@@ -195,73 +283,128 @@ export default function Employees() {
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
         </div>
-      ) : filteredEmployees.length === 0 ? (
-        <div className="bg-gray-50 rounded-lg p-8 text-center">
-          <p className="text-gray-500">No employees found</p>
-        </div>
+      ) : role === 'admin' && activeTab === 'inactive' ? (
+        filteredInactiveEmployees.length === 0 ? (
+          <div className="bg-gray-50 rounded-lg p-8 text-center">
+            <p className="text-gray-500">No inactive employees found</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredInactiveEmployees.map((employee) => (
+              <div
+                key={employee.id}
+                className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow relative"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-800">
+                      {employee.full_name}
+                    </h3>
+                    <p className="text-gray-500">{employee.role}</p>
+                  </div>
+                  <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
+                    Inactive
+                  </span>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center text-gray-600">
+                    <Mail className="w-4 h-4 mr-2" />
+                    {employee.email}
+                  </div>
+                  <div className="flex items-center text-gray-600">
+                    <Calendar className="w-4 h-4 mr-2" />
+                    Joined {new Date(employee.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+
+                <div className="mt-4 flex justify-end space-x-2">
+                  <button
+                    onClick={() => handleRestoreEmployee(employee.id)}
+                    className="text-gray-500 hover:text-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Restore"
+                    disabled={restoringEmployeeId === employee.id}
+                  >
+                    {restoringEmployeeId === employee.id ? (
+                      <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <UserPlus className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredEmployees.map((employee) => (
-            <div
-              key={employee.id}
-              className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow relative"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-800">
-                    {employee.full_name}
-                  </h3>
-                  <p className="text-gray-500">{employee.role}</p>
+        filteredEmployees.length === 0 ? (
+          <div className="bg-gray-50 rounded-lg p-8 text-center">
+            <p className="text-gray-500">No active employees found</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredEmployees.map((employee) => (
+              <div
+                key={employee.id}
+                className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow relative"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-800">
+                      {employee.full_name}
+                    </h3>
+                    <p className="text-gray-500">{employee.role}</p>
+                  </div>
+                  <span
+                    className={`px-2 py-1 text-xs rounded-full ${
+                      employee.role === 'head'
+                        ? 'bg-purple-100 text-purple-800'
+                      : employee.role === 'admin'
+                        ? 'bg-green-100 text-green-800'
+                        : employee.role === 'e.head'
+                          ? 'bg-orange-100 text-orange-800'
+                          : employee.role === 'e.employee'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : employee.role === 'finance.employee'
+                              ? 'bg-teal-100 text-teal-800'
+                              : 'bg-blue-100 text-blue-800'
+                    }`}
+                  >
+                    {employee.role}
+                  </span>
                 </div>
-                <span
-                  className={`px-2 py-1 text-xs rounded-full ${
-                    employee.role === 'head'
-                      ? 'bg-purple-100 text-purple-800'
-                    : employee.role === 'admin'
-                      ? 'bg-green-100 text-green-800'
-                      : employee.role === 'e.head'
-                        ? 'bg-orange-100 text-orange-800'
-                        : employee.role === 'e.employee'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : employee.role === 'finance.employee'
-                            ? 'bg-teal-100 text-teal-800'
-                          : 'bg-blue-100 text-blue-800'
-                  }`}
-                >
-                  {employee.role}
-                </span>
-              </div>
 
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center text-gray-600">
-                  <Mail className="w-4 h-4 mr-2" />
-                  {employee.email}
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center text-gray-600">
+                    <Mail className="w-4 h-4 mr-2" />
+                    {employee.email}
+                  </div>
+                  <div className="flex items-center text-gray-600">
+                    <Calendar className="w-4 h-4 mr-2" />
+                    Joined {new Date(employee.created_at).toLocaleDateString()}
+                  </div>
                 </div>
-                <div className="flex items-center text-gray-600">
-                  <Calendar className="w-4 h-4 mr-2" />
-                  Joined {new Date(employee.created_at).toLocaleDateString()}
-                </div>
-              </div>
 
-              <div className="mt-4 flex justify-end space-x-2">
-                <button
-                  onClick={() => openEditModal(employee)}
-                  className="text-gray-500 hover:text-blue-600"
-                  title="Edit"
-                >
-                  <Edit className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => handleDeleteEmployee(employee.id)}
-                  className="text-gray-500 hover:text-red-600"
-                  title="Delete"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="mt-4 flex justify-end space-x-2">
+                  <button
+                    onClick={() => openEditModal(employee)}
+                    className="text-gray-500 hover:text-blue-600"
+                    title="Edit"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeactivateEmployee(employee.id)}
+                    className="text-gray-500 hover:text-red-600"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
       )}
 
       {/* Add Employee Modal */}
@@ -276,7 +419,10 @@ export default function Employees() {
               </div>
             )}
 
-            <form onSubmit={handleCreateEmployee}>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              handleAddEmployee(newEmployee);
+            }}>
               <div className="mb-4">
                 <label className="block text-gray-700 mb-2">Full Name</label>
                 <input
@@ -368,7 +514,13 @@ export default function Employees() {
               </div>
             )}
 
-            <form onSubmit={handleUpdateEmployee}>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              handleUpdateEmployee(currentEmployee.id, {
+                full_name: currentEmployee.full_name,
+                role: currentEmployee.role,
+              });
+            }}>
               <div className="mb-4">
                 <label className="block text-gray-700 mb-2">Full Name</label>
                 <input

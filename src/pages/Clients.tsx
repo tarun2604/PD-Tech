@@ -51,7 +51,8 @@ export default function Clients() {
           .from('client_assignments')
           .select('client:clients(*, client_assignments(employee_id))')
           .eq('employee_id', user.id)
-          .eq('client.status', 'ongoing');
+          .eq('client.status', 'ongoing')
+          .eq('is_active', true);
 
         if (error) throw error;
         const validClients = data
@@ -90,7 +91,8 @@ export default function Clients() {
     const { data, error } = await supabase
       .from('employees')
       .select('*')
-      .eq('role', 'employee');
+      .eq('role', 'employee')
+      .eq('is_active', true);
     
     if (error) {
       console.error('Error loading employees:', error);

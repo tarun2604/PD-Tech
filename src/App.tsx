@@ -23,6 +23,7 @@ import Nav from './components/Nav';
 import FClientProfile from './pages/FClientProfile';
 import TimeInsights from './pages/TimeInsights';
 import ClientStatusInsights from './pages/ClientStatusInsights';
+import Logs from './pages/Logs';
 
 function RoleBasedRoute({ children, requiredRoles }: { children: React.ReactNode; requiredRoles: string[] }) {
   const role = useStore((state) => state.role);
@@ -79,12 +80,13 @@ function AppContent() {
           <Route path="/site-visits/:id" element={<SiteVisitForm />} />
           <Route path="/fclients/:id" element={<FClientProfile />} />
           <Route path="/pd-kits" element={<AllPdKitsPage />} />
+          <Route path="/logs" element={<Logs />} />
 
           {/* Role-specific Routes */}
           <Route
             path="/employees"
             element={
-              <RoleBasedRoute requiredRoles={['head','e.head']}>
+              <RoleBasedRoute requiredRoles={['head','e.head','admin']}>
                 <Employees />
               </RoleBasedRoute>
             }

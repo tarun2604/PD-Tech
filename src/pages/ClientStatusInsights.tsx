@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Search, Calendar, Filter, X } from 'lucide-react';
+import { Search, Calendar, Filter, X, BarChart2, PieChart, Clock, Users, TrendingUp, Activity } from 'lucide-react';
 
 interface StatusChange {
   id: string;
@@ -22,6 +22,22 @@ interface StatusDuration {
   minutes: number;
 }
 
+interface StatusAnalysis {
+  totalChanges: number;
+  averageDuration: number;
+  longestDuration: StatusDuration;
+  shortestDuration: StatusDuration;
+  changesByStatus: Record<string, number>;
+  changesByClient: Record<string, number>;
+  statusTransitions: Record<string, Record<string, number>>;
+  timeDistribution: {
+    lessThanDay: number;
+    oneToThreeDays: number;
+    threeToSevenDays: number;
+    moreThanWeek: number;
+  };
+}
+
 export default function ClientStatusInsights() {
   const [statusChanges, setStatusChanges] = useState<StatusChange[]>([]);
   const [statusDurations, setStatusDurations] = useState<Record<string, StatusDuration[]>>({});
@@ -29,11 +45,21 @@ export default function ClientStatusInsights() {
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [clientFilter, setClientFilter] = useState('');
+  const [durationFilter, setDurationFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [statusAnalysis, setStatusAnalysis] = useState<StatusAnalysis | null>(null);
+  const [activeTab, setActiveTab] = useState<'list' | 'analysis' | 'charts'>('list');
 
   useEffect(() => {
     fetchStatusChanges();
   }, []);
+
+  useEffect(() => {
+    if (statusChanges.length > 0) {
+      calculateStatusAnalysis();
+    }
+  }, [statusChanges]);
 
   async function fetchStatusChanges() {
     setLoading(true);
@@ -48,7 +74,7 @@ export default function ClientStatusInsights() {
           changed_at,
           client:client_id (name, company)
         `)
-        .order('changed_at', { ascending: true }); // Changed to ascending for duration calculation
+        .order('changed_at', { ascending: true });
 
       if (error) throw error;
 
@@ -81,7 +107,6 @@ export default function ClientStatusInsights() {
     const clientDurations: Record<string, StatusDuration[]> = {};
     const clientChanges: Record<string, StatusChange[]> = {};
 
-    // Group changes by client
     changes.forEach(change => {
       if (!clientChanges[change.client_id]) {
         clientChanges[change.client_id] = [];
@@ -89,14 +114,10 @@ export default function ClientStatusInsights() {
       clientChanges[change.client_id].push(change);
     });
 
-    // Calculate durations for each client
     Object.entries(clientChanges).forEach(([clientId, changes]) => {
       const durations: StatusDuration[] = [];
-      
-      // Sort changes chronologically
       changes.sort((a, b) => a.raw_date.getTime() - b.raw_date.getTime());
 
-      // Calculate duration between consecutive status changes
       for (let i = 1; i < changes.length; i++) {
         const prevChange = changes[i - 1];
         const currentChange = changes[i];
@@ -123,6 +144,66 @@ export default function ClientStatusInsights() {
     setStatusDurations(clientDurations);
   }
 
+  function calculateStatusAnalysis() {
+    const analysis: StatusAnalysis = {
+      totalChanges: statusChanges.length,
+      averageDuration: 0,
+      longestDuration: { from_status: '', to_status: '', duration: '', days: 0, hours: 0, minutes: 0 },
+      shortestDuration: { from_status: '', to_status: '', duration: '', days: 0, hours: 0, minutes: 0 },
+      changesByStatus: {},
+      changesByClient: {},
+      statusTransitions: {},
+      timeDistribution: {
+        lessThanDay: 0,
+        oneToThreeDays: 0,
+        threeToSevenDays: 0,
+        moreThanWeek: 0
+      }
+    };
+
+    let totalMinutes = 0;
+    let totalDurations = 0;
+
+    // Calculate status transitions and durations
+    Object.values(statusDurations).forEach(durations => {
+      durations.forEach(duration => {
+        const minutes = duration.days * 1440 + duration.hours * 60 + duration.minutes;
+        totalMinutes += minutes;
+        totalDurations++;
+
+        // Update longest and shortest durations
+        if (minutes > (analysis.longestDuration.days * 1440 + analysis.longestDuration.hours * 60 + analysis.longestDuration.minutes)) {
+          analysis.longestDuration = duration;
+        }
+        if (analysis.shortestDuration.duration === '' || minutes < (analysis.shortestDuration.days * 1440 + analysis.shortestDuration.hours * 60 + analysis.shortestDuration.minutes)) {
+          analysis.shortestDuration = duration;
+        }
+
+        // Count status transitions
+        if (!analysis.statusTransitions[duration.from_status]) {
+          analysis.statusTransitions[duration.from_status] = {};
+        }
+        analysis.statusTransitions[duration.from_status][duration.to_status] = 
+          (analysis.statusTransitions[duration.from_status][duration.to_status] || 0) + 1;
+
+        // Time distribution
+        if (minutes < 1440) analysis.timeDistribution.lessThanDay++;
+        else if (minutes < 4320) analysis.timeDistribution.oneToThreeDays++;
+        else if (minutes < 10080) analysis.timeDistribution.threeToSevenDays++;
+        else analysis.timeDistribution.moreThanWeek++;
+      });
+    });
+
+    // Count changes by status and client
+    statusChanges.forEach(change => {
+      analysis.changesByStatus[change.new_status] = (analysis.changesByStatus[change.new_status] || 0) + 1;
+      analysis.changesByClient[change.client_name] = (analysis.changesByClient[change.client_name] || 0) + 1;
+    });
+
+    analysis.averageDuration = totalMinutes / totalDurations;
+    setStatusAnalysis(analysis);
+  }
+
   function formatDuration(days: number, hours: number, minutes: number): string {
     const parts = [];
     if (days > 0) parts.push(`${days}d`);
@@ -143,17 +224,33 @@ export default function ClientStatusInsights() {
     const matchesStatus = statusFilter 
       ? change.new_status.toLowerCase() === statusFilter.toLowerCase()
       : true;
+
+    const matchesClient = clientFilter
+      ? change.client_name.toLowerCase().includes(clientFilter.toLowerCase())
+      : true;
+
+    const matchesDuration = durationFilter
+      ? {
+          'less-than-day': statusDurations[change.client_id]?.some(d => d.days === 0),
+          'one-to-three-days': statusDurations[change.client_id]?.some(d => d.days >= 1 && d.days < 3),
+          'three-to-seven-days': statusDurations[change.client_id]?.some(d => d.days >= 3 && d.days < 7),
+          'more-than-week': statusDurations[change.client_id]?.some(d => d.days >= 7)
+        }[durationFilter]
+      : true;
     
-    return matchesSearch && matchesDate && matchesStatus;
+    return matchesSearch && matchesDate && matchesStatus && matchesClient && matchesDuration;
   });
 
   const clearFilters = () => {
     setSearchTerm('');
     setDateFilter('');
     setStatusFilter('');
+    setClientFilter('');
+    setDurationFilter('');
   };
 
   const uniqueStatuses = ['ongoing', 'completed', 'poreceived', 'ecomplete'];
+  const uniqueClients = [...new Set(statusChanges.map(change => change.client_name))];
 
   return (
     <div className="container mx-auto px-4 py-6">
@@ -184,6 +281,40 @@ export default function ClientStatusInsights() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200 mb-6">
+        <button
+          onClick={() => setActiveTab('list')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === 'list'
+              ? 'border-b-2 border-blue-500 text-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          List View
+        </button>
+        <button
+          onClick={() => setActiveTab('analysis')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === 'analysis'
+              ? 'border-b-2 border-blue-500 text-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Analysis
+        </button>
+        <button
+          onClick={() => setActiveTab('charts')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === 'charts'
+              ? 'border-b-2 border-blue-500 text-blue-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Charts
+        </button>
+      </div>
+
       {showFilters && (
         <div className="bg-white rounded-lg shadow p-4 mb-6">
           <div className="flex justify-between items-center mb-3">
@@ -197,7 +328,7 @@ export default function ClientStatusInsights() {
             </button>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Change Date</label>
               <div className="relative">
@@ -228,6 +359,35 @@ export default function ClientStatusInsights() {
                 ))}
               </select>
             </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Client</label>
+              <select
+                value={clientFilter}
+                onChange={(e) => setClientFilter(e.target.value)}
+                className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2"
+              >
+                <option value="">All Clients</option>
+                {uniqueClients.map(client => (
+                  <option key={client} value={client}>{client}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Duration</label>
+              <select
+                value={durationFilter}
+                onChange={(e) => setDurationFilter(e.target.value)}
+                className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2"
+              >
+                <option value="">All Durations</option>
+                <option value="less-than-day">Less than 1 day</option>
+                <option value="one-to-three-days">1-3 days</option>
+                <option value="three-to-seven-days">3-7 days</option>
+                <option value="more-than-week">More than 1 week</option>
+              </select>
+            </div>
           </div>
         </div>
       )}
@@ -237,105 +397,254 @@ export default function ClientStatusInsights() {
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status Change</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time Between Statuses</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredChanges.length > 0 ? (
-                  filteredChanges.map((change, index, arr) => {
-                    // Find the previous change for this client
-                    const prevChangeIndex = arr.findIndex(
-                      (c, i) => i < index && c.client_id === change.client_id
-                    );
-                    const prevChange = prevChangeIndex >= 0 ? arr[prevChangeIndex] : null;
-                    
-                    let duration = 'N/A';
-                    if (prevChange) {
-                      const timeDiff = change.raw_date.getTime() - prevChange.raw_date.getTime();
-                      const totalMinutes = Math.floor(timeDiff / (1000 * 60));
-                      const days = Math.floor(totalMinutes / (60 * 24));
-                      const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
-                      const minutes = Math.floor(totalMinutes % 60);
-                      duration = formatDuration(days, hours, minutes);
-                    }
-
-                    return (
-                      <tr key={`${change.id}-${index}`} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{change.client_name}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{change.company}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{change.changed_at}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            change.old_status === 'completed' ? 'bg-green-100 text-green-800' :
-                            change.old_status === 'ongoing' ? 'bg-blue-100 text-blue-800' :
-                            change.old_status === 'poreceived' ? 'bg-purple-100 text-purple-800' :
-                            change.old_status === 'ecomplete' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {change.old_status}
-                          </span>
-                          {' → '}
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            change.new_status === 'completed' ? 'bg-green-100 text-green-800' :
-                            change.new_status === 'ongoing' ? 'bg-blue-100 text-blue-800' :
-                            change.new_status === 'poreceived' ? 'bg-purple-100 text-purple-800' :
-                            change.new_status === 'ecomplete' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {change.new_status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {prevChange ? (
-                            <span className={`px-2 py-1 rounded text-xs ${
-                              duration === 'N/A' ? 'bg-gray-100 text-gray-800' :
-                              getDurationColor(
-                                change.raw_date.getTime() - prevChange.raw_date.getTime()
-                              )
-                            }`}>
-                              {duration}
-                            </span>
-                          ) : 'Initial Status'}
+        <>
+          {activeTab === 'list' && (
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status Change</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time Between Statuses</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredChanges.length > 0 ? (
+                      filteredChanges.map(change => {
+                        const durations = statusDurations[change.client_id] || [];
+                        const lastDuration = durations[durations.length - 1];
+                        return (
+                          <tr key={change.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{change.client_name}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{change.company}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{change.changed_at}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <span className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                {change.old_status} → {change.new_status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {lastDuration ? (
+                                <span
+                                  className={`px-2 py-1 rounded-full text-xs ${
+                                    lastDuration.days > 7
+                                      ? 'bg-red-100 text-red-800'
+                                      : lastDuration.days > 3
+                                      ? 'bg-yellow-100 text-yellow-800'
+                                      : 'bg-green-100 text-green-800'
+                                  }`}
+                                >
+                                  {lastDuration.duration}
+                                </span>
+                              ) : (
+                                'N/A'
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
+                          No matching status changes found
+                          {(searchTerm || dateFilter || statusFilter || clientFilter || durationFilter) && (
+                            <button 
+                              onClick={clearFilters}
+                              className="text-blue-600 hover:underline ml-2"
+                            >
+                              Clear filters
+                            </button>
+                          )}
                         </td>
                       </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'analysis' && statusAnalysis && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">Overview</h3>
+                  <Activity className="w-6 h-6 text-blue-600" />
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm text-gray-500">Total Status Changes</p>
+                    <p className="text-2xl font-bold text-gray-800">{statusAnalysis.totalChanges}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Average Duration</p>
+                    <p className="text-2xl font-bold text-gray-800">
+                      {Math.floor(statusAnalysis.averageDuration / 1440)}d {Math.floor((statusAnalysis.averageDuration % 1440) / 60)}h
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">Longest Duration</h3>
+                  <Clock className="w-6 h-6 text-red-600" />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-500">
+                    From: {statusAnalysis.longestDuration.from_status}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    To: {statusAnalysis.longestDuration.to_status}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Duration: {statusAnalysis.longestDuration.duration}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">Shortest Duration</h3>
+                  <Clock className="w-6 h-6 text-green-600" />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-500">
+                    From: {statusAnalysis.shortestDuration.from_status}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    To: {statusAnalysis.shortestDuration.to_status}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Duration: {statusAnalysis.shortestDuration.duration}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">Time Distribution</h3>
+                  <PieChart className="w-6 h-6 text-purple-600" />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Less than 1 day</span>
+                    <span className="text-sm font-medium text-gray-800">{statusAnalysis.timeDistribution.lessThanDay}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">1-3 days</span>
+                    <span className="text-sm font-medium text-gray-800">{statusAnalysis.timeDistribution.oneToThreeDays}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">3-7 days</span>
+                    <span className="text-sm font-medium text-gray-800">{statusAnalysis.timeDistribution.threeToSevenDays}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">More than 1 week</span>
+                    <span className="text-sm font-medium text-gray-800">{statusAnalysis.timeDistribution.moreThanWeek}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">Status Changes</h3>
+                  <TrendingUp className="w-6 h-6 text-yellow-600" />
+                </div>
+                <div className="space-y-2">
+                  {Object.entries(statusAnalysis.changesByStatus)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([status, count]) => (
+                      <div key={status} className="flex justify-between">
+                        <span className="text-sm text-gray-500">{status}</span>
+                        <span className="text-sm font-medium text-gray-800">{count} changes</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">Top Clients</h3>
+                  <Users className="w-6 h-6 text-red-600" />
+                </div>
+                <div className="space-y-2">
+                  {Object.entries(statusAnalysis.changesByClient)
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 5)
+                    .map(([client, count]) => (
+                      <div key={client} className="flex justify-between">
+                        <span className="text-sm text-gray-500 truncate">{client}</span>
+                        <span className="text-sm font-medium text-gray-800">{count} changes</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'charts' && statusAnalysis && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Time Distribution</h3>
+                <div className="space-y-2">
+                  {Object.entries(statusAnalysis.timeDistribution).map(([range, count]) => {
+                    const percentage = (count / statusAnalysis.totalChanges) * 100;
+                    return (
+                      <div key={range} className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-500">
+                            {range === 'lessThanDay' ? 'Less than 1 day' :
+                             range === 'oneToThreeDays' ? '1-3 days' :
+                             range === 'threeToSevenDays' ? '3-7 days' :
+                             'More than 1 week'}
+                          </span>
+                          <span className="text-gray-800">{count} changes</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2.5">
+                          <div
+                            className="bg-blue-600 h-2.5 rounded-full"
+                            style={{ width: `${percentage}%` }}
+                          ></div>
+                        </div>
+                      </div>
                     );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
-                      No matching status changes found
-                      {(searchTerm || dateFilter || statusFilter) && (
-                        <button 
-                          onClick={clearFilters}
-                          className="text-blue-600 hover:underline ml-2"
-                        >
-                          Clear filters
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                  })}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Top Clients</h3>
+                <div className="space-y-2">
+                  {Object.entries(statusAnalysis.changesByClient)
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 5)
+                    .map(([client, count]) => {
+                      const percentage = (count / statusAnalysis.totalChanges) * 100;
+                      return (
+                        <div key={client} className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">{client}</span>
+                            <span className="text-gray-800">{count} changes</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2.5">
+                            <div
+                              className="bg-green-600 h-2.5 rounded-full"
+                              style={{ width: `${percentage}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
-}
-
-function getDurationColor(durationMs: number): string {
-  const hours = durationMs / (1000 * 60 * 60);
-  if (hours > 72) return 'bg-red-100 text-red-800';
-  if (hours > 24) return 'bg-yellow-100 text-yellow-800';
-  return 'bg-green-100 text-green-800';
 }

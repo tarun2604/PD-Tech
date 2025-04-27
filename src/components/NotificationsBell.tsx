@@ -26,6 +26,22 @@ export function NotificationBell({ userId }: NotificationBellProps) {
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Load notifications from localStorage on component mount
+  useEffect(() => {
+    const storedNotifications = localStorage.getItem('notifications');
+    if (storedNotifications) {
+      const parsedNotifications = JSON.parse(storedNotifications);
+      setNotifications(parsedNotifications);
+      const unreadCount = parsedNotifications.filter((n: Notification) => !n.is_delivered).length;
+      setUnreadCount(unreadCount);
+    }
+  }, []);
+
+  // Save notifications to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('notifications', JSON.stringify(notifications));
+  }, [notifications]);
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -36,48 +52,6 @@ export function NotificationBell({ userId }: NotificationBellProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  useEffect(() => {
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 30000); // Refresh every 30 seconds
-
-    // Set up realtime subscription
-    const channel = supabase
-      .channel('notifications_bell')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'notifications',
-        filter: `assigned_to=eq.${userId}`
-      }, (payload) => {
-        // Ignore DELETE events
-        if (payload.eventType === 'DELETE') return;
-        
-        // Handle INSERT and UPDATE events
-        if (payload.eventType === 'INSERT') {
-          setNotifications(prev => [payload.new as Notification, ...prev]);
-          if (!payload.new.is_delivered) {
-            setUnreadCount(count => count + 1);
-          }
-        } else if (payload.eventType === 'UPDATE') {
-          setNotifications(prev => 
-            prev.map(notification => 
-              notification.id === payload.new.id ? payload.new as Notification : notification
-            )
-          );
-          // Update unread count if delivery status changed
-          if (payload.old.is_delivered !== payload.new.is_delivered) {
-            setUnreadCount(count => payload.new.is_delivered ? count - 1 : count + 1);
-          }
-        }
-      })
-      .subscribe();
-
-    return () => {
-      clearInterval(interval);
-      supabase.removeChannel(channel);
-    };
-  }, [userId]);
 
   useEffect(() => {
     loadNotifications();
@@ -145,10 +119,21 @@ export function NotificationBell({ userId }: NotificationBellProps) {
       }
       
       if (data) {
-        setNotifications(data);
-        const unreadCount = data.filter(n => !n.is_delivered).length;
+        // Merge with existing notifications from localStorage
+        const storedNotifications = localStorage.getItem('notifications');
+        const existingNotifications = storedNotifications ? JSON.parse(storedNotifications) : [];
+        
+        // Combine and deduplicate notifications
+        const combinedNotifications = [...data, ...existingNotifications]
+          .filter((notification, index, self) => 
+            index === self.findIndex(n => n.id === notification.id)
+          )
+          .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
+        
+        setNotifications(combinedNotifications);
+        const unreadCount = combinedNotifications.filter(n => !n.is_delivered).length;
         setUnreadCount(unreadCount);
-        console.log('Loaded notifications:', data.length, 'Unread:', unreadCount);
+        console.log('Loaded notifications:', combinedNotifications.length, 'Unread:', unreadCount);
       }
     } catch (error) {
       console.error('Error loading notifications:', error);
@@ -158,11 +143,22 @@ export function NotificationBell({ userId }: NotificationBellProps) {
   }
 
   async function markAsDelivered(id: string) {
-    await supabase
-      .from('notifications')
-      .update({ is_delivered: true })
-      .eq('id', id);
-    loadNotifications();
+    try {
+      await supabase
+        .from('notifications')
+        .update({ is_delivered: true })
+        .eq('id', id);
+      
+      // Update local state
+      setNotifications(prev => 
+        prev.map(notification => 
+          notification.id === id ? { ...notification, is_delivered: true } : notification
+        )
+      );
+      setUnreadCount(prev => prev - 1);
+    } catch (error) {
+      console.error('Error marking notification as delivered:', error);
+    }
   }
 
   async function markAllAsRead() {
@@ -171,11 +167,24 @@ export function NotificationBell({ userId }: NotificationBellProps) {
       .map(n => n.id);
     
     if (unreadIds.length > 0) {
-      await supabase
-        .from('notifications')
-        .update({ is_delivered: true })
-        .in('id', unreadIds);
-      loadNotifications();
+      try {
+        await supabase
+          .from('notifications')
+          .update({ is_delivered: true })
+          .in('id', unreadIds);
+        
+        // Update local state
+        setNotifications(prev => 
+          prev.map(notification => 
+            unreadIds.includes(notification.id) 
+              ? { ...notification, is_delivered: true } 
+              : notification
+          )
+        );
+        setUnreadCount(0);
+      } catch (error) {
+        console.error('Error marking all notifications as read:', error);
+      }
     }
   }
 
@@ -195,8 +204,10 @@ export function NotificationBell({ userId }: NotificationBellProps) {
         return;
       }
       
+      // Clear both state and localStorage
       setNotifications([]);
       setUnreadCount(0);
+      localStorage.removeItem('notifications');
       console.log('All notifications deleted successfully');
     } catch (error) {
       console.error('Error deleting notifications:', error);
@@ -252,39 +263,37 @@ export function NotificationBell({ userId }: NotificationBellProps) {
               )}
             </div>
           </div>
-          
-          <div className="max-h-60 overflow-y-auto">
+
+          <div className="max-h-96 overflow-y-auto">
             {loading ? (
-              <div className="p-4 flex justify-center">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
-              </div>
+              <div className="p-4 text-center text-gray-500">Loading...</div>
             ) : notifications.length === 0 ? (
-              <p className="p-4 text-gray-500 text-center">No notifications</p>
+              <div className="p-4 text-center text-gray-500">No notifications</div>
             ) : (
-              notifications.map(notification => (
-                <div 
-                  key={notification.id} 
-                  className={`p-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${
+              notifications.map((notification) => (
+                <div
+                  key={notification.id}
+                  className={`p-3 border-b border-gray-100 hover:bg-gray-50 ${
                     !notification.is_delivered ? 'bg-blue-50' : ''
                   }`}
-                  onClick={() => markAsDelivered(notification.id)}
                 >
                   <div className="flex justify-between items-start">
-                    <h4 className={`font-medium text-sm ${
-                      !notification.is_delivered ? 'text-blue-600' : 'text-gray-700'
-                    }`}>
-                      {notification.title}
-                    </h4>
+                    <div>
+                      <h4 className="font-medium text-gray-800">{notification.title}</h4>
+                      <p className="text-sm text-gray-600">{notification.description}</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {formatDate(notification.scheduled_at)}
+                      </p>
+                    </div>
                     {!notification.is_delivered && (
-                      <span className="h-2 w-2 rounded-full bg-blue-500 mt-1.5"></span>
+                      <button
+                        onClick={() => markAsDelivered(notification.id)}
+                        className="text-blue-600 text-xs hover:underline"
+                      >
+                        Mark as read
+                      </button>
                     )}
                   </div>
-                  {notification.description && (
-                    <p className="text-xs text-gray-600 mt-1">{notification.description}</p>
-                  )}
-                  <p className="text-xs text-gray-400 mt-1">
-                    {formatDate(notification.scheduled_at)}
-                  </p>
                 </div>
               ))
             )}

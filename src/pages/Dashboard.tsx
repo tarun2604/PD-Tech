@@ -124,11 +124,17 @@ export default function Dashboard() {
           { count: invoiceCount },
           { count: paymentCount },
         ] = await Promise.all([
-          supabase.from('clients').select('*', { count: 'exact', head: true }),
-          supabase.from('employees').select('*', { count: 'exact', head: true }),
+          supabase.from('clients').select('*', { count: 'exact', head: true }).eq('is_active', true),
+          supabase
+            .from('employees')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_active', true),
           supabase.from('quotations').select('*', { count: 'exact', head: true }),
           supabase.from('site_visit').select('*', { count: 'exact', head: true }),
-          supabase.from('quotations').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
+          supabase
+            .from('quotations')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'approved'),
           role === 'e.head' ? supabase.from('projects').select('*', { count: 'exact', head: true }) : { count: 0 },
           role === 'e.head' ? supabase.from('invoices').select('*', { count: 'exact', head: true }) : { count: 0 },
           role === 'e.head' ? supabase.from('payments').select('*', { count: 'exact', head: true }) : { count: 0 },

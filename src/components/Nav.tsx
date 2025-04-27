@@ -5,6 +5,7 @@ import { observer } from 'mobx-react-lite';
 import { UserCircle, KeyRound, Menu } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { NotificationBell } from './NotificationsBell';
+import { logActions } from '../lib/logging';
 
 const Nav = observer(() => {
     const store = useStore();
@@ -22,6 +23,7 @@ const Nav = observer(() => {
         confirmPassword: ''
     });
     const [passwordError, setPasswordError] = useState('');
+    const [user, setUser] = useState(store.user);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -58,11 +60,29 @@ const Nav = observer(() => {
         fetchEmployeeData();
     }, [store.user?.id]);
 
-    const handleLogout = () => {
-        store.logout();
-        localStorage.clear();
-        sessionStorage.clear();
-        navigate('/login');
+    useEffect(() => {
+        const checkUser = async () => {
+            try {
+                const { data: { user: currentUser } } = await supabase.auth.getUser();
+                if (currentUser) {
+                    setUser(currentUser);
+                }
+            } catch (error) {
+                console.error('Error checking user:', error);
+            }
+        };
+
+        checkUser();
+    }, []);
+
+    const handleLogout = async () => {
+        try {
+            await logActions.logout(user?.id || '');
+            await supabase.auth.signOut();
+            navigate('/login');
+        } catch (error) {
+            console.error('Error during logout:', error);
+        }
     };
 
     const toggleDropdown = () => {

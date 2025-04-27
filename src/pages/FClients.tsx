@@ -61,7 +61,8 @@ export default function FClients() {
     const { data, error } = await supabase
       .from('employees')
       .select('*')
-      .eq('role', 'finance.employee');
+      .eq('role', 'finance.employee')
+      .eq('is_active', true);
     
     if (error) {
       console.error('Error loading employees:', error);

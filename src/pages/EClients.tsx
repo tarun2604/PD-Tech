@@ -62,7 +62,8 @@ export default function EClients() {
         const { data, error } = await supabase
           .from('clients')
           .select('*, client_assignments(employee_id)')
-          .eq('status', 'poreceived');
+          .eq('status', 'poreceived')
+          .eq('is_active', true);
 
         if (error) throw error;
         setClients(data || []);
@@ -86,18 +87,20 @@ export default function EClients() {
     setFilteredClients(filtered);
   };
 
-  async function loadEmployees() {
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*')
-      .eq('role', 'e.employee');
-    
-    if (error) {
+  const loadEmployees = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('is_active', true)  // Only load active employees
+        .order('name');
+
+      if (error) throw error;
+      setEmployees(data || []);
+    } catch (error) {
       console.error('Error loading employees:', error);
-      return;
     }
-    setEmployees(data || []);
-  }
+  };
 
   async function handleAssignEmployees() {
     if (!selectedClient) return;

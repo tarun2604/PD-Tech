@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Upload, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
+import { logActions } from '../lib/logging';
 
 interface Client {
   id: string;
@@ -12,13 +13,19 @@ interface Client {
 
 interface SiteVisit {
   id: string;
-  client_Id: string;
-  latitude: string;
-  longitude: string;
-  accuracy?: string;
+  client_id: string;
+  employee_id: string;
+  visit_date: string;
+  duration: string;
+  notes: string;
   created_at: string;
-  employee_Id: string;
-  status: string;
+}
+
+interface NewSiteVisit {
+  client_Id: string;
+  visit_date: string;
+  duration: string;
+  notes: string;
 }
 
 interface PdKitUpload {
@@ -35,9 +42,9 @@ export default function SiteVisit() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newSiteVisit, setNewSiteVisit] = useState({
     client_Id: '',
-    latitude: '',
-    longitude: '',
-    accuracy: '',
+    visit_date: '',
+    duration: '',
+    notes: '',
   });
   const [clients, setClients] = useState<Client[]>([]);
   const [assignedClients, setAssignedClients] = useState<Client[]>([]);
@@ -50,6 +57,7 @@ export default function SiteVisit() {
   const [pdKitUploadSuccess, setPdKitUploadSuccess] = useState('');
   const [currentVisitForPdKit, setCurrentVisitForPdKit] = useState<string | null>(null);
   const [pdKits, setPdKits] = useState<Record<string, PdKitUpload[]>>({});
+  const [error, setError] = useState('');
 
   const navigate = useNavigate();
   const role = useStore((state) => state.role);
@@ -153,7 +161,7 @@ export default function SiteVisit() {
 
     const query = searchQuery.toLowerCase();
     const filtered = siteVisits.filter(visit => {
-      const client = (role === 'e.head' || role === 'admin' || role === 'head' ? clients : assignedClients).find(c => c.id === visit.client_Id);
+      const client = (role === 'e.head' || role === 'admin' || role === 'head' ? clients : assignedClients).find(c => c.id === visit.client_id);
       const clientName = client?.name.toLowerCase() || '';
       const companyName = client?.company.toLowerCase() || '';
       
@@ -203,119 +211,87 @@ export default function SiteVisit() {
     }
   };
 
-  async function handleCreateSiteVisit(e: React.FormEvent) {
+  const handleCreateSiteVisit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
-      alert("You must be logged in to create a site visit");
-      return;
-    }
-
     setIsSubmitting(true);
+    setError('');
 
     try {
       const { data, error } = await supabase
-        .from('site_visit')
-        .insert([
-          {
-            client_Id: newSiteVisit.client_Id,
-            latitude: newSiteVisit.latitude,
-            longitude: newSiteVisit.longitude,
-            employee_Id: user.id,
-            status: 'start'
-          }
-        ])
+        .from('site_visits')
+        .insert([{
+          client_id: newSiteVisit.client_Id,
+          employee_id: user?.id,
+          visit_date: newSiteVisit.visit_date,
+          duration: newSiteVisit.duration,
+          notes: newSiteVisit.notes
+        }])
         .select()
         .single();
 
       if (error) throw error;
 
-      setSiteVisits([data, ...siteVisits]);
+      // Log the site visit creation
+      if (user?.id) {
+        const client = clients.find(c => c.id === newSiteVisit.client_Id);
+        await logActions.siteVisitCreated(user.id, data.id, client?.name || 'Unknown Client', newSiteVisit.duration);
+      }
+
+      setSiteVisits([...siteVisits, data]);
+      setShowAddModal(false);
       setNewSiteVisit({
         client_Id: '',
-        latitude: '',
-        longitude: '',
-        accuracy: '',
+        visit_date: '',
+        duration: '',
+        notes: ''
       });
-      setShowAddModal(false);
-    } catch (error) {
-      console.error('Error creating site visit:', error);
-      alert("Failed to create site visit");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setIsSubmitting(false);
     }
-  }
+  };
+
+  const handleUploadClick = (visitId: string) => {
+    setCurrentVisitForPdKit(visitId);
+  };
 
   const handlePdKitUpload = async (visitId: string, uploadType: 'start' | 'end') => {
-    if (!pdKitFile || !user || !visitId) {
-      setPdKitUploadError('No file selected or visit not specified');
-      return;
-    }
-    
+    if (!pdKitFile) return;
     setPdKitUploading(true);
     setPdKitUploadError('');
     setPdKitUploadSuccess('');
 
     try {
-      // Get the visit to associate client ID
-      const { data: visitData, error: visitError } = await supabase
-        .from('site_visit')
-        .select('client_Id')
-        .eq('id', visitId)
-        .single();
-
-      if (visitError) throw visitError;
-      if (!visitData) throw new Error('Visit not found');
-
-      // Generate a unique filename
       const fileExt = pdKitFile.name.split('.').pop();
-      const fileName = `${user.id}-${visitId}-${Date.now()}.${fileExt}`;
+      const fileName = `${visitId}_${uploadType}_${Date.now()}.${fileExt}`;
       const filePath = `pd-kits/${fileName}`;
 
-      // Upload the file
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('pd-kits')
-        .upload(filePath, pdKitFile, {
-          cacheControl: '3600',
-          upsert: false
-        });
+        .upload(filePath, pdKitFile);
 
       if (uploadError) throw uploadError;
 
-      // Record the upload in the database
-      const { data: dbData, error: dbError } = await supabase
-        .from('pd_kit_uploads')
-        .insert([
-          {
-            employee_id: user.id,
-            file_path: filePath,
-            client_id: visitData.client_Id,
-            visit_id: visitId,
-            upload_type: uploadType
-          }
-        ])
-        .select();
+      const { error: dbError } = await supabase
+        .from('pd_kits')
+        .insert([{
+          visit_id: visitId,
+          file_path: filePath,
+          upload_type: uploadType,
+          uploaded_by: user?.id
+        }]);
 
       if (dbError) throw dbError;
 
-      // Update local state
-      setPdKits(prev => {
-        const newPdKits = { ...prev };
-        if (!newPdKits[visitId]) {
-          newPdKits[visitId] = [];
-        }
-        newPdKits[visitId].push(dbData[0]);
-        return newPdKits;
-      });
-
-      setPdKitUploadSuccess('PD Kit uploaded successfully!');
+      setPdKitUploadSuccess('PD Kit uploaded successfully');
       setPdKitFile(null);
       setTimeout(() => {
         setCurrentVisitForPdKit(null);
         setPdKitUploadSuccess('');
       }, 2000);
-    } catch (error: any) {
-      console.error('Error in handlePdKitUpload:', error);
-      setPdKitUploadError(error.message || 'Failed to upload PD Kit. Please try again.');
+    } catch (err) {
+      setPdKitUploadError(err instanceof Error ? err.message : 'Failed to upload PD Kit');
     } finally {
       setPdKitUploading(false);
     }
@@ -334,123 +310,69 @@ export default function SiteVisit() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <h1 className="text-2xl font-bold text-gray-800">Site Visits</h1>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
-          <div className="relative w-full sm:w-64">
-            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-              <Search className="w-5 h-5 text-gray-400" />
-            </div>
-            <input
-              type="search"
-              placeholder="Search by client or date"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="block w-full p-2 pl-10 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-          <div className="flex gap-2 w-full sm:w-auto">
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 w-full sm:w-auto justify-center"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Site Visit</span>
-            </button>
-          </div>
+    <div className="container mx-auto px-4 py-8">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Site Visits</h1>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Site Visit
+        </button>
+      </div>
 
-          {filteredSiteVisits.map((visit) => (
-            <button
-              key={visit.id}
-              onClick={() => navigate(`/site-visits/${visit.id}/pd-kits`)}
-              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-            >
-              View PD Kits
-            </button>
-          ))}
+      {/* Search Bar */}
+      <div className="mb-6">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search site visits..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </div>
       </div>
 
-      {filteredSiteVisits.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
-          <p className="text-gray-500">No site visits found</p>
-          {searchQuery && (
-            <button 
-              onClick={() => setSearchQuery('')}
-              className="text-blue-600 hover:underline mt-2"
-            >
-              Clear search
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredSiteVisits.map((visit) => {
-            const availableClients = role === 'admin' || role === 'head' ? clients : assignedClients;
-            const client = availableClients.find(c => c.id === visit.client_Id);
-            const visitDate = new Date(visit.created_at).toLocaleString();
-            const visitPdKits = pdKits[visit.id] || [];
+      {/* Site Visits List */}
+      <div className="grid gap-4">
+        {filteredSiteVisits.map((visit) => {
+          const availableClients = role === 'admin' || role === 'head' ? clients : assignedClients;
+          const client = availableClients.find(c => c.id === visit.client_id);
+          const visitDate = new Date(visit.created_at).toLocaleString();
+          const visitPdKits = pdKits[visit.id] || [];
 
-            return (
-              <div
-                key={visit.id}
-                className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow flex flex-col"
-              >
-                <div className="flex-grow">
-                  <h3 className="text-xl font-semibold text-gray-800 mb-1">
-                    {client ? client.name : 'Unknown Client'}
-                  </h3>
-                  {client?.company && (
-                    <p className="text-gray-600 text-sm mb-2">{client.company}</p>
-                  )}
-                  <p className="text-gray-500 text-xs mb-4">
-                    {visitDate}
+          return (
+            <div key={visit.id} className="bg-white rounded-lg shadow p-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-lg font-semibold">{client?.name}</h3>
+                  <p className="text-gray-600">{client?.company}</p>
+                  <p className="text-gray-500 text-sm mt-2">
+                    Visit Date: {new Date(visit.visit_date).toLocaleDateString()}
                   </p>
-
-                  {visitPdKits.length > 0 && (
-                    <div className="mb-4">
-                      <h4 className="text-sm font-medium text-gray-700 mb-2">PD Kits:</h4>
-                      <ul className="space-y-2">
-                        {visitPdKits.map((kit) => (
-                          <li key={kit.id} className="flex items-center">
-                            <FileText className="w-4 h-4 text-gray-500 mr-2" />
-                            <a
-                              href={getPdKitUrl(kit.file_path)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:underline text-sm"
-                            >
-                              {new Date(kit.uploaded_at).toLocaleString()} ({kit.upload_type})
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                  <p className="text-gray-500 text-sm">
+                    Duration: {visit.duration}
+                  </p>
+                  {visit.notes && (
+                    <p className="text-gray-600 mt-2">{visit.notes}</p>
                   )}
                 </div>
-                <div className="flex justify-between items-center mt-4">
+                <div className="flex space-x-2">
                   <button
-                    onClick={() => navigate(`/site-visits/${visit.id}`)}
-                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                    onClick={() => handleUploadClick(visit.id)}
+                    className="text-blue-600 hover:text-blue-800"
                   >
-                    Site Visit
+                    <Upload className="w-5 h-5" />
                   </button>
-                  {(role === 'e.employee') && (
-                    <button
-                      onClick={() => setCurrentVisitForPdKit(visit.id)}
-                      className="text-green-600 hover:text-green-800 text-sm font-medium flex items-center gap-1"
-                    >
-                      <Upload className="w-4 h-4" />
-                      <span>Upload PD Kit</span>
-                    </button>
-                  )}
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
+          );
+        })}
+      </div>
 
       {/* Add Site Visit Modal */}
       {showAddModal && (
@@ -489,184 +411,57 @@ export default function SiteVisit() {
               </div>
 
               <div className="mb-4">
-                <label className="block text-gray-700 mb-2 font-medium">Location</label>
-                <div className="space-y-3">
-                  <button
-                    type="button"
-                    onClick={updateLocation}
-                    disabled={isGettingLocation || isSubmitting}
-                    className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-400 flex items-center justify-center gap-2"
-                  >
-                    {isGettingLocation ? (
-                      <>
-                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Getting Location...
-                      </>
-                    ) : (
-                      'Update Current Location'
-                    )}
-                  </button>
-
-                  {newSiteVisit.latitude && newSiteVisit.longitude && (
-                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <p className="text-sm">
-                        <span className="font-medium">Latitude:</span> {newSiteVisit.latitude}
-                      </p>
-                      <p className="text-sm">
-                        <span className="font-medium">Longitude:</span> {newSiteVisit.longitude}
-                      </p>
-                      {newSiteVisit.accuracy && (
-                        <p className="text-sm">
-                          <span className="font-medium">Accuracy:</span> {newSiteVisit.accuracy}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {locationError && (
-                    <p className="text-red-500 text-sm">{locationError}</p>
-                  )}
-                </div>
+                <label className="block text-gray-700 mb-2 font-medium">Visit Date</label>
+                <input
+                  type="date"
+                  value={newSiteVisit.visit_date}
+                  onChange={(e) => setNewSiteVisit({ ...newSiteVisit, visit_date: e.target.value })}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
               </div>
 
-              <div className="flex justify-end gap-3 pt-4">
+              <div className="mb-4">
+                <label className="block text-gray-700 mb-2 font-medium">Duration (hours)</label>
+                <input
+                  type="number"
+                  value={newSiteVisit.duration}
+                  onChange={(e) => setNewSiteVisit({ ...newSiteVisit, duration: e.target.value })}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                  required
+                  min="0.5"
+                  step="0.5"
+                />
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-gray-700 mb-2 font-medium">Notes</label>
+                <textarea
+                  value={newSiteVisit.notes}
+                  onChange={(e) => setNewSiteVisit({ ...newSiteVisit, notes: e.target.value })}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                  rows={3}
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
                   disabled={isSubmitting}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800 disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={!newSiteVisit.client_Id || !newSiteVisit.latitude || isSubmitting}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 flex items-center gap-2"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  disabled={isSubmitting}
                 >
-                  {isSubmitting ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Creating...
-                    </>
-                  ) : (
-                    'Create Site Visit'
-                  )}
+                  {isSubmitting ? 'Creating...' : 'Create'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* PD Kit Upload Modal */}
-      {currentVisitForPdKit && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Upload PD Kit</h2>
-              <button
-                onClick={() => {
-                  setCurrentVisitForPdKit(null);
-                  setPdKitFile(null);
-                  setPdKitUploadError('');
-                  setPdKitUploadSuccess('');
-                }}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-gray-700 mb-2 font-medium">Select File (Image or PDF)</label>
-                <input
-                  type="file"
-                  accept="image/*,.pdf"
-                  onChange={(e) => setPdKitFile(e.target.files?.[0] || null)}
-                  className="block w-full text-sm text-gray-500
-                    file:mr-4 file:py-2 file:px-4
-                    file:rounded-md file:border-0
-                    file:text-sm file:font-semibold
-                    file:bg-blue-50 file:text-blue-700
-                    hover:file:bg-blue-100"
-                  disabled={pdKitUploading}
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-700 mb-2 font-medium">Upload Type</label>
-                <select
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                  disabled={pdKitUploading}
-                >
-                  <option value="start">Start of Visit</option>
-                </select>
-              </div>
-
-              {pdKitFile && (
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-sm">
-                    <span className="font-medium">Selected file:</span> {pdKitFile.name}
-                  </p>
-                  <p className="text-sm">
-                    <span className="font-medium">Size:</span> {(pdKitFile.size / 1024).toFixed(2)} KB
-                  </p>
-                </div>
-              )}
-
-              {pdKitUploadError && (
-                <p className="text-red-500 text-sm">{pdKitUploadError}</p>
-              )}
-
-              {pdKitUploadSuccess && (
-                <p className="text-green-500 text-sm">{pdKitUploadSuccess}</p>
-              )}
-
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCurrentVisitForPdKit(null);
-                    setPdKitFile(null);
-                    setPdKitUploadError('');
-                    setPdKitUploadSuccess('');
-                  }}
-                  disabled={pdKitUploading}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const selectElement = document.querySelector('select');
-                    const uploadType = selectElement?.value as 'start' | 'end';
-                    handlePdKitUpload(currentVisitForPdKit, uploadType);
-                  }}
-                  disabled={!pdKitFile || pdKitUploading}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-400 flex items-center gap-2"
-                >
-                  {pdKitUploading ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Uploading...
-                    </>
-                  ) : (
-                    'Upload PD Kit'
-                  )}
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}

@@ -52,6 +52,7 @@ CREATE TABLE employees (
   email text UNIQUE NOT NULL,
   full_name text NOT NULL,
   role text NOT NULL CHECK (role IN ('head', 'employee')),
+  is_active boolean DEFAULT true,
   created_at timestamptz DEFAULT now()
 );
 

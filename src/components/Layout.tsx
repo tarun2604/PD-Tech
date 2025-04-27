@@ -10,6 +10,7 @@ import {
   Table2Icon,
   Menu,
   Clock,
+  FileText,
 } from 'lucide-react';
 import { useStore } from '../lib/store';
 
@@ -67,7 +68,7 @@ export default function Layout() {
           </Link>
 
           {/* Employees link visible for 'head' and 'e.head' roles */}
-          {(role === 'head' || role === 'e.head') && (
+          {(role === 'head' || role === 'e.head' || role === 'admin') && (
             <Link
               to="/employees"
               className="flex items-center px-6 py-3 text-gray-700 hover:bg-gray-100"
@@ -187,6 +188,17 @@ export default function Layout() {
             <Book className="w-5 h-5 mr-3" />
             Clients History
           </Link>
+
+          {/* Logs link visible for admin users only */}
+          {role === 'admin' && (
+            <Link
+              to="/logs"
+              className="flex items-center px-6 py-3 text-gray-700 hover:bg-gray-100"
+            >
+              <FileText className="w-5 h-5 mr-3" />
+              Logs
+            </Link>
+          )}
 
         </nav>
       </div>

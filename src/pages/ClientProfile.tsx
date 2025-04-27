@@ -3,6 +3,24 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
 import { Plus, Phone, Mail, LogOutIcon, MapPin, Send } from 'lucide-react';
+import { logActions } from '../lib/logging';
+
+// Helper function to log actions
+async function logAction(action: string, details: string, userId: string) {
+  try {
+    await supabase
+      .from('logs')
+      .insert([
+        {
+          user_id: userId,
+          action,
+          details,
+        }
+      ]);
+  } catch (error) {
+    console.error('Error logging action:', error);
+  }
+}
 
 export default function ClientProfile() {
   const { id } = useParams<{ id: string }>();
@@ -47,7 +65,27 @@ export default function ClientProfile() {
   };
 
   // Function to send email with quotation details (admin only)
-  const handleSendEmail = (email: string, quotationData: any) => {
+  const handleSendEmail = async (quotationData: any) => {
+    if (!contactPersons.length) {
+      alert('No contact persons available to send email to');
+      return;
+    }
+
+    const contactEmail = contactPersons[0].email;
+    if (!contactEmail) {
+      alert('Contact person does not have an email address');
+      return;
+    }
+
+    // Log email sending
+    if (user?.id) {
+      await logAction(
+        'send_quotation_email',
+        `Sent quotation #${quotationData.id} to ${contactEmail} for client ${client?.name}`,
+        user.id
+      );
+    }
+
     const subject = `Quotation #${quotationData.id} Details`;
     const body = 
       `Dear Client,\n\n` +
@@ -70,11 +108,11 @@ export default function ClientProfile() {
     
     if (isMobile) {
       // For mobile devices, use mailto: link
-      const mailtoLink = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      const mailtoLink = `mailto:${contactEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       window.location.href = mailtoLink;
     } else {
       // For desktop, use Gmail web interface
-      window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+      window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${contactEmail}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
     }
   };
 
@@ -83,6 +121,10 @@ export default function ClientProfile() {
       loadClientData();
       loadAssets();
       checkAssignment();
+      // Log page view
+      if (user?.id) {
+        logAction('view_client_profile', `Viewed client profile for ID: ${id}`, user.id);
+      }
     }
   }, [id, isAssigned]);
 
@@ -199,6 +241,16 @@ export default function ClientProfile() {
         .from('contact_persons')
         .insert([{ ...newContact, client_id: id }]);
       if (error) throw error;
+      
+      // Log contact addition
+      if (user?.id) {
+        await logAction(
+          'add_contact',
+          `Added contact ${newContact.name} (${newContact.email}) for client ${client?.name}`,
+          user.id
+        );
+      }
+
       setNewContact({ name: '', position: '', email: '', phone: '' });
       setShowAddContactModal(false);
       await loadClientData();
@@ -223,6 +275,16 @@ export default function ClientProfile() {
         })
         .eq('id', editContact.id);
       if (error) throw error;
+
+      // Log contact update
+      if (user?.id) {
+        await logAction(
+          'update_contact',
+          `Updated contact ${editContact.name} (${editContact.email}) for client ${client?.name}`,
+          user.id
+        );
+      }
+
       setEditContact(null);
       await loadClientData();
     } catch (error) {
@@ -236,6 +298,13 @@ export default function ClientProfile() {
     e.preventDefault();
     setLoading(prev => ({ ...prev, quotation: true }));
     try {
+      // Check if there are any contact persons
+      if (!contactPersons.length) {
+        alert('Please add at least one contact person before creating a quotation');
+        setShowAddQuotationModal(false);
+        return;
+      }
+
       const { data: quotation, error: quotationError } = await supabase
         .from('quotations')
         .insert([{
@@ -264,6 +333,15 @@ export default function ClientProfile() {
         if (assetsError) throw assetsError;
       }
 
+      // Log quotation creation
+      if (user?.id) {
+        await logAction(
+          'create_quotation',
+          `Created quotation #${quotation.id} for client ${client?.name} with amount ₹${newQuotation.amount}`,
+          user.id
+        );
+      }
+
       setNewQuotation({
         amount: '',
         description: '',
@@ -287,11 +365,51 @@ export default function ClientProfile() {
         .update({ status })
         .eq('id', quotationId);
       if (error) throw error;
+
+      // Log quotation status change
+      if (user?.id) {
+        await logAction(
+          'update_quotation_status',
+          `Changed quotation #${quotationId} status to ${status} for client ${client?.name}`,
+          user.id
+        );
+      }
+
       await loadClientData();
     } catch (error) {
       console.error('Error updating quotation status:', error);
     }
   }
+
+  // Add logging for site visits
+  const handleSiteVisit = async (visitData: any) => {
+    try {
+      const { error } = await supabase
+        .from('site_visits')
+        .insert([{
+          client_id: id,
+          employee_id: user?.id,
+          visit_date: visitData.visit_date,
+          duration: visitData.duration,
+          notes: visitData.notes
+        }]);
+
+      if (error) throw error;
+
+      // Log the site visit
+      await logActions.siteVisit(
+        user?.id || '',
+        id,
+        client?.name || 'Unknown Client',
+        visitData.duration
+      );
+
+      // Refresh site visits
+      await loadClientData();
+    } catch (error) {
+      console.error('Error recording site visit:', error);
+    }
+  };
 
   if (!client) return <div className="flex justify-center items-center h-screen">Loading client data...</div>;
 
@@ -320,7 +438,13 @@ export default function ClientProfile() {
             </button>
             {(role === 'employee' || role === 'admin') && isAssigned && (
               <button
-                onClick={() => setShowAddQuotationModal(true)}
+                onClick={() => {
+                  if (!contactPersons.length) {
+                    alert('Please add at least one contact person before creating a quotation');
+                    return;
+                  }
+                  setShowAddQuotationModal(true);
+                }}
                 className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center"
                 disabled={loading.quotation}
               >
@@ -375,7 +499,13 @@ export default function ClientProfile() {
       {(role === 'admin' || role === 'head' || isAssigned) && (
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Quotations</h2>
-          {quotations.length === 0 ? (
+          {!contactPersons.length ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-yellow-800">
+                Please add at least one contact person before creating quotations.
+              </p>
+            </div>
+          ) : quotations.length === 0 ? (
             <p className="text-gray-500">No quotations found</p>
           ) : (
             <div className="space-y-4">
@@ -414,7 +544,7 @@ export default function ClientProfile() {
                       {/* Send Email button - only visible to admin */}
                       {role === 'admin' && (
                         <button
-                          onClick={() => handleSendEmail(contactPersons[0].email, quotation)}
+                          onClick={() => handleSendEmail(quotation)}
                           className="flex items-center justify-center gap-1 px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
                         >
                           <Send className="w-4 h-4" />

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
 import { Building2 } from 'lucide-react';
+import { logActions } from '../lib/logging';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -54,12 +55,21 @@ export default function Login() {
         .from('employees')
         .select('*')
         .eq('id', authData.user.id)
+        .eq('is_active', true)
         .single();
 
       if (employeeError) throw employeeError;
+      
+      if (!employeeData) {
+        throw new Error('Your account is inactive. Please contact your administrator.');
+      }
 
       setUser(authData.user);
       setRole(employeeData.role);
+      
+      // Log the login action
+      await logActions.login(authData.user.id);
+      
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message);

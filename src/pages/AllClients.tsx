@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Users, Search, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
+import { logActions } from '../lib/logging';
 
 export default function AllClients() {
     const [clients, setClients] = useState<any[]>([]);
@@ -88,6 +89,15 @@ export default function AllClients() {
             if (error) {
                 console.error('Error creating client:', error);
                 return;
+            }
+
+            // Log client creation
+            if (user?.id) {
+                await logActions.clientAdded(
+                    user.id,
+                    data.id,
+                    newClient.name
+                );
             }
 
             // Create notification for the new client
