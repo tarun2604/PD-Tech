@@ -77,10 +77,38 @@ export default function Employees() {
 
   const handleAddEmployee = async (employeeData: any) => {
     try {
+      // First, check if an employee with this email already exists
+      const { data: existingEmployee, error: checkError } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('email', employeeData.email)
+        .maybeSingle();
+
+      if (checkError) throw checkError;
+      if (existingEmployee) {
+        setError('An employee with this email already exists.');
+        return;
+      }
+
+      // Create the auth user first
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: employeeData.email,
+        password: employeeData.password,
+        options: {
+          data: {
+            full_name: employeeData.full_name,
+            role: employeeData.role
+          }
+        }
+      });
+
+      if (authError) throw authError;
+
+      // Then create the employee record
       const { data, error } = await supabase
         .from('employees')
         .insert([{
-          name: employeeData.name,
+          full_name: employeeData.full_name,
           email: employeeData.email,
           role: employeeData.role,
           is_active: true
@@ -96,16 +124,23 @@ export default function Employees() {
           await logActions.employeeAdded(
             store.user.id,
             data.id,
-            data.name
+            data.full_name
           );
         }
 
         // Refresh employees list
         loadEmployees();
         setShowAddModal(false);
+        setNewEmployee({
+          email: '',
+          password: '',
+          full_name: '',
+          role: 'employee',
+        });
       }
     } catch (error) {
       console.error('Error adding employee:', error);
+      setError('Failed to add employee. Please try again.');
     }
   };
 
@@ -123,7 +158,7 @@ export default function Employees() {
         await logActions.employeeUpdated(
           store.user.id,
           employeeId,
-          updates.name || 'Unknown Employee',
+          updates.full_name || 'Unknown Employee',
           JSON.stringify(updates)
         );
       }
@@ -285,7 +320,7 @@ export default function Employees() {
         </div>
       ) : role === 'admin' && activeTab === 'inactive' ? (
         filteredInactiveEmployees.length === 0 ? (
-          <div className="bg-gray-50 rounded-lg p-8 text-center">
+        <div className="bg-gray-50 rounded-lg p-8 text-center">
             <p className="text-gray-500">No inactive employees found</p>
           </div>
         ) : (
@@ -340,70 +375,70 @@ export default function Employees() {
         filteredEmployees.length === 0 ? (
           <div className="bg-gray-50 rounded-lg p-8 text-center">
             <p className="text-gray-500">No active employees found</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredEmployees.map((employee) => (
-              <div
-                key={employee.id}
-                className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow relative"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-800">
-                      {employee.full_name}
-                    </h3>
-                    <p className="text-gray-500">{employee.role}</p>
-                  </div>
-                  <span
-                    className={`px-2 py-1 text-xs rounded-full ${
-                      employee.role === 'head'
-                        ? 'bg-purple-100 text-purple-800'
-                      : employee.role === 'admin'
-                        ? 'bg-green-100 text-green-800'
-                        : employee.role === 'e.head'
-                          ? 'bg-orange-100 text-orange-800'
-                          : employee.role === 'e.employee'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : employee.role === 'finance.employee'
-                              ? 'bg-teal-100 text-teal-800'
-                              : 'bg-blue-100 text-blue-800'
-                    }`}
-                  >
-                    {employee.role}
-                  </span>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredEmployees.map((employee) => (
+            <div
+              key={employee.id}
+              className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow relative"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-800">
+                    {employee.full_name}
+                  </h3>
+                  <p className="text-gray-500">{employee.role}</p>
                 </div>
+                <span
+                  className={`px-2 py-1 text-xs rounded-full ${
+                    employee.role === 'head'
+                      ? 'bg-purple-100 text-purple-800'
+                    : employee.role === 'admin'
+                      ? 'bg-green-100 text-green-800'
+                      : employee.role === 'e.head'
+                        ? 'bg-orange-100 text-orange-800'
+                        : employee.role === 'e.employee'
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : employee.role === 'finance.employee'
+                            ? 'bg-teal-100 text-teal-800'
+                          : 'bg-blue-100 text-blue-800'
+                  }`}
+                >
+                  {employee.role}
+                </span>
+              </div>
 
-                <div className="mt-4 space-y-2">
-                  <div className="flex items-center text-gray-600">
-                    <Mail className="w-4 h-4 mr-2" />
-                    {employee.email}
-                  </div>
-                  <div className="flex items-center text-gray-600">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Joined {new Date(employee.created_at).toLocaleDateString()}
-                  </div>
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center text-gray-600">
+                  <Mail className="w-4 h-4 mr-2" />
+                  {employee.email}
                 </div>
-
-                <div className="mt-4 flex justify-end space-x-2">
-                  <button
-                    onClick={() => openEditModal(employee)}
-                    className="text-gray-500 hover:text-blue-600"
-                    title="Edit"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDeactivateEmployee(employee.id)}
-                    className="text-gray-500 hover:text-red-600"
-                    title="Delete"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                <div className="flex items-center text-gray-600">
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Joined {new Date(employee.created_at).toLocaleDateString()}
                 </div>
               </div>
-            ))}
-          </div>
+
+              <div className="mt-4 flex justify-end space-x-2">
+                <button
+                  onClick={() => openEditModal(employee)}
+                  className="text-gray-500 hover:text-blue-600"
+                  title="Edit"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+                <button
+                    onClick={() => handleDeactivateEmployee(employee.id)}
+                  className="text-gray-500 hover:text-red-600"
+                  title="Delete"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
         )
       )}
 
