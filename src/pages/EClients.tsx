@@ -138,7 +138,7 @@ export default function EClients() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">PO Received Clients</h1>
+        <h1 className="text-2xl font-bold text-gray-800">My Clients</h1>
         <div className="flex items-center space-x-4">
           <div className="relative">
             <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">

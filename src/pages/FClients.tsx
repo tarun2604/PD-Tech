@@ -117,7 +117,7 @@ export default function FClients() {
   return (
     <div className="container mx-auto px-4">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-white-800">FClients</h1>
+        <h1 className="text-2xl font-bold text-white-800">My Clients</h1>
         <div className="flex items-center">
           <div className="relative mr-4">
             <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
