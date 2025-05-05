@@ -91,8 +91,8 @@ export default function EClients() {
       const { data, error } = await supabase
         .from('employees')
         .select('*')
-        .eq('is_active', true)  // Only load active employees
-        .order('name');
+        .eq('is_active', true) // Only load active employees
+        .eq('role', 'e.employee');
 
       if (error) throw error;
       setEmployees(data || []);
