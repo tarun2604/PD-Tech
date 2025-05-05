@@ -62,8 +62,7 @@ export default function EClients() {
         const { data, error } = await supabase
           .from('clients')
           .select('*, client_assignments(employee_id)')
-          .eq('status', 'poreceived')
-          .eq('is_active', true);
+          .eq('status', 'poreceived');
 
         if (error) throw error;
         setClients(data || []);
