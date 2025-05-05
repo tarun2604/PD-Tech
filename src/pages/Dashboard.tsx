@@ -13,7 +13,6 @@ interface DashboardStats {
   totalClients: number;
   totalEmployees: number;
   totalQuotations: number;
-  totalSiteVisits: number;
   totalpos: number;
   totalInvoices?: number;
   totalPayments?: number;
@@ -38,7 +37,6 @@ export default function Dashboard() {
     totalClients: 0,
     totalEmployees: 0,
     totalQuotations: 0,
-    totalSiteVisits: 0,
     totalpos: 0,
     totalInvoices: 0,
     totalPayments: 0,
@@ -46,7 +44,6 @@ export default function Dashboard() {
     loading: true,
   });
   const [recentQuotations, setRecentQuotations] = useState<any[]>([]);
-  const [recentSiteVisits, setRecentSiteVisits] = useState<any[]>([]);
   const [recentInvoices, setRecentInvoices] = useState<any[]>([]);
   const [recentPayments, setRecentPayments] = useState<any[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<NotificationEvent[]>([]);
@@ -67,7 +64,6 @@ export default function Dashboard() {
         { table: 'clients', channel: 'clients_changes' },
         { table: 'employees', channel: 'employees_changes' },
         { table: 'quotations', channel: 'quotations_changes' },
-        { table: 'site_visit', channel: 'site_visits_changes' },
         { table: 'invoices', channel: 'invoices_changes' },
         { table: 'payments', channel: 'payments_changes' },
         { table: 'projects', channel: 'projects_changes' },
@@ -118,7 +114,6 @@ export default function Dashboard() {
           { count: clientCount },
           { count: employeeCount },
           { count: quotationCount },
-          { count: siteVisitCount },
           { count: posCount },
           { count: projectCount },
           { count: invoiceCount },
@@ -130,7 +125,6 @@ export default function Dashboard() {
             .select('*', { count: 'exact', head: true })
             .eq('is_active', true),
           supabase.from('quotations').select('*', { count: 'exact', head: true }),
-          supabase.from('site_visit').select('*', { count: 'exact', head: true }),
           supabase
             .from('quotations')
             .select('*', { count: 'exact', head: true })
@@ -145,24 +139,8 @@ export default function Dashboard() {
           totalClients: clientCount || 0,
           totalEmployees: employeeCount || 0,
           totalQuotations: quotationCount || 0,
-          totalSiteVisits: siteVisitCount || 0,
           totalpos: posCount || 0,
           totalProjects: projectCount || 0,
-          totalInvoices: invoiceCount || 0,
-          totalPayments: paymentCount || 0,
-          loading: false,
-        }));
-      } else if (role === 'finance.employee') {
-        const [
-          { count: invoiceCount },
-          { count: paymentCount },
-        ] = await Promise.all([
-          supabase.from('invoices').select('*', { count: 'exact', head: true }),
-          supabase.from('payments').select('*', { count: 'exact', head: true }),
-        ]);
-
-        setStats(prev => ({
-          ...prev,
           totalInvoices: invoiceCount || 0,
           totalPayments: paymentCount || 0,
           loading: false,
@@ -172,7 +150,6 @@ export default function Dashboard() {
         const [
           { count: assignedClientCount },
           { count: quotationCount },
-          { count: siteVisitCount },
           { count: posCount },
           { count: projectCount },
         ] = await Promise.all([
@@ -182,10 +159,6 @@ export default function Dashboard() {
             .eq('employee_id', user?.id),
           supabase
             .from('quotations')
-            .select('*', { count: 'exact', head: true })
-            .eq('employee_id', user?.id),
-          supabase
-            .from('site_visit')
             .select('*', { count: 'exact', head: true })
             .eq('employee_id', user?.id),
           supabase
@@ -206,7 +179,6 @@ export default function Dashboard() {
           totalClients: assignedClientCount || 0,
           totalEmployees: 0,
           totalQuotations: quotationCount || 0,
-          totalSiteVisits: siteVisitCount || 0,
           totalpos: posCount || 0,
           totalProjects: projectCount || 0,
           loading: false,
@@ -229,25 +201,6 @@ export default function Dashboard() {
           .limit(5);
 
         setRecentQuotations(quotations || []);
-
-        // Load recent site visits for non-finance roles
-        const { data: siteVisits } = await supabase
-          .from('site_visit')
-          .select(`
-            *,
-            clients (
-              name,
-              company
-            ),
-            employees (
-              full_name
-            ),
-            address,
-          `)
-          .order('created_at', { ascending: false })
-          .limit(5);
-
-        setRecentSiteVisits(siteVisits || []);
       } else {
         // Finance-specific data
         const { data: invoices } = await supabase
@@ -599,16 +552,6 @@ export default function Dashboard() {
                 <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm md:text-base text-gray-500">Site Visits</p>
-                      <h3 className="text-xl md:text-2xl font-bold text-gray-800">{stats.totalSiteVisits}</h3>
-                    </div>
-                    <CalendarCheck className="w-6 h-6 md:w-8 md:h-8 text-yellow-600" />
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
                       <p className="text-sm md:text-base text-gray-500">Total PO's</p>
                       <h3 className="text-xl md:text-2xl font-bold text-gray-800">{stats.totalpos}</h3>
                     </div>
@@ -660,31 +603,6 @@ export default function Dashboard() {
                               {quotation.status.charAt(0).toUpperCase() + quotation.status.slice(1)}
                             </span>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Display Site Visits for Employees Only */}
-                {(role === 'e.employee' || role === 'employee') && (
-                  <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
-                    <h2 className="text-lg md:text-xl font-semibold text-gray-800 mb-3 md:mb-4 flex items-center">
-                      <CalendarCheck className="w-4 h-4 md:w-5 md:h-5 mr-2 text-yellow-600" />
-                      Recent Site Visits
-                    </h2>
-                    <div className="space-y-3 md:space-y-4">
-                      {recentSiteVisits.map((visit) => (
-                        <div key={visit.id} className="border-b pb-3 md:pb-4 last:border-b-0">
-                          <p className="text-sm md:text-base font-medium text-gray-800">
-                            {visit.clients?.name} - {visit.clients?.company}
-                          </p>
-                          <p className="text-xs md:text-sm text-gray-500">
-                            By: {visit.employees?.full_name}
-                          </p>
-                          <p className="text-xs md:text-sm text-gray-500">
-                            Location: {visit.address}
-                          </p>
                         </div>
                       ))}
                     </div>
