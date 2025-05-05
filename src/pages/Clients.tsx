@@ -51,8 +51,7 @@ export default function Clients() {
           .from('client_assignments')
           .select('client:clients(*, client_assignments(employee_id))')
           .eq('employee_id', user.id)
-          .eq('client.status', 'ongoing')
-          .eq('is_active', true);
+          .eq('client.status', 'ongoing');
 
         if (error) throw error;
         const validClients = data

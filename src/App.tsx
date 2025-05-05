@@ -26,7 +26,7 @@ import ClientStatusInsights from './pages/ClientStatusInsights';
 import Logs from './pages/Logs';
 
 function RoleBasedRoute({ children, requiredRoles }: { children: React.ReactNode; requiredRoles: string[] }) {
-  const role = useStore((state) => state.role);
+  const role = useStore((state) => state.impersonatedRole || state.role);
   return requiredRoles.includes(role || '') ? children : <Navigate to="/dashboard" />;
 }
 

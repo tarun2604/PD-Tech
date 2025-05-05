@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { observer } from 'mobx-react-lite';
-import { UserCircle, KeyRound, Menu } from 'lucide-react';
+import { UserCircle, KeyRound, Menu, UserCog } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { NotificationBell } from './NotificationsBell';
 import { logActions } from '../lib/logging';
@@ -24,6 +24,8 @@ const Nav = observer(() => {
     });
     const [passwordError, setPasswordError] = useState('');
     const [user, setUser] = useState(store.user);
+    const [employees, setEmployees] = useState<any[]>([]);
+    const [showImpersonationDropdown, setShowImpersonationDropdown] = useState(false);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -75,6 +77,26 @@ const Nav = observer(() => {
         checkUser();
     }, []);
 
+    useEffect(() => {
+        const loadEmployees = async () => {
+            if (store.role === 'admin') {
+                try {
+                    const { data, error } = await supabase
+                        .from('employees')
+                        .select('*')
+                        .eq('is_active', true);
+
+                    if (error) throw error;
+                    setEmployees(data || []);
+                } catch (error) {
+                    console.error('Error loading employees:', error);
+                }
+            }
+        };
+
+        loadEmployees();
+    }, [store.role]);
+
     const handleLogout = async () => {
         try {
             await logActions.logout(user?.id || '');
@@ -89,6 +111,7 @@ const Nav = observer(() => {
         setIsDropdownOpen(!isDropdownOpen);
         if (isDropdownOpen) {
             setShowChangePassword(false);
+            setShowImpersonationDropdown(false);
         }
     };
 
@@ -121,7 +144,6 @@ const Nav = observer(() => {
 
             if (error) throw error;
 
-            // Reset form and show success
             setPasswordForm({
                 currentPassword: '',
                 newPassword: '',
@@ -132,6 +154,61 @@ const Nav = observer(() => {
         } catch (error: any) {
             console.error('Error changing password:', error);
             setPasswordError(error.message || 'Failed to change password');
+        }
+    };
+
+    const handleImpersonate = async (employee: any) => {
+        try {
+            // Store the original user data before impersonating
+            const originalUser = store.user;
+            const originalRole = store.role;
+
+            // Set the impersonated user
+            store.impersonateUser(employee, employee.role);
+
+            // Log the impersonation action
+            await logActions.logout(originalUser?.id || '');
+            await logActions.logout(employee.id);
+
+            // Add notification for the impersonated employee
+            await store.addNotification({
+                title: 'Account Access',
+                description: `Your account was accessed by admin ${originalUser?.user_metadata?.full_name || 'Admin'}`,
+                scheduled_at: new Date().toISOString(),
+                created_by: originalUser?.id || '',
+                assigned_to: employee.id,
+                target_role: employee.role
+            });
+
+            setShowImpersonationDropdown(false);
+            setIsDropdownOpen(false);
+        } catch (error) {
+            console.error('Error during impersonation:', error);
+        }
+    };
+
+    const handleStopImpersonation = async () => {
+        try {
+            // Get the original user data
+            const { data: { user: currentUser } } = await supabase.auth.getUser();
+            if (currentUser) {
+                const { data: employeeData, error: employeeError } = await supabase
+                    .from('employees')
+                    .select('*')
+                    .eq('id', currentUser.id)
+                    .single();
+
+                if (!employeeError && employeeData) {
+                    // Restore the original user and role
+                    store.impersonateUser(currentUser, employeeData.role);
+                    store.stopImpersonation();
+                }
+            }
+
+            setShowImpersonationDropdown(false);
+            setIsDropdownOpen(false);
+        } catch (error) {
+            console.error('Error stopping impersonation:', error);
         }
     };
 
@@ -164,12 +241,34 @@ const Nav = observer(() => {
                                 <>
                                     <div className="px-4 py-2 border-b">
                                         <p className="text-sm font-medium text-gray-700">
-                                            {employeeData.full_name || 'Loading...'}
+                                            {store.impersonatedUser ? 
+                                                `Impersonating: ${store.impersonatedUser.full_name}` : 
+                                                employeeData.full_name || 'Loading...'}
                                         </p>
                                         <p className="text-xs text-gray-500 capitalize">
-                                            {employeeData.role.toLowerCase().replace('.', ' • ')}
+                                            {store.impersonatedUser ? 
+                                                store.impersonatedUser.role.toLowerCase().replace('.', ' • ') :
+                                                employeeData.role.toLowerCase().replace('.', ' • ')}
                                         </p>
                                     </div>
+                                    {store.role === 'admin' && !store.impersonatedUser && (
+                                        <button
+                                            onClick={() => setShowImpersonationDropdown(!showImpersonationDropdown)}
+                                            className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                        >
+                                            <UserCog className="w-4 h-4 mr-2" />
+                                            Impersonate User
+                                        </button>
+                                    )}
+                                    {store.impersonatedUser && (
+                                        <button
+                                            onClick={handleStopImpersonation}
+                                            className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                        >
+                                            <UserCog className="w-4 h-4 mr-2" />
+                                            Stop Impersonation
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => setShowChangePassword(true)}
                                         className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
@@ -240,6 +339,22 @@ const Nav = observer(() => {
                                             </button>
                                         </div>
                                     </form>
+                                </div>
+                            )}
+                            {showImpersonationDropdown && (
+                                <div className="absolute left-0 mt-1 w-64 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-100">
+                                    <div className="max-h-60 overflow-y-auto">
+                                        {employees.map((employee) => (
+                                            <button
+                                                key={employee.id}
+                                                onClick={() => handleImpersonate(employee)}
+                                                className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                            >
+                                                <UserCircle className="w-4 h-4 mr-2" />
+                                                {employee.full_name} ({employee.role})
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
                         </div>
