@@ -30,17 +30,27 @@ export default function FClients() {
   }, [clients, searchQuery]);
 
   async function loadClients() {
-    // Modify the query to only select clients whose status is 'poreceived' for EClients
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*, client_assignments(employee_id)')
-      .eq('status', 'ecomplete');
-    
-    if (error) {
+    try {
+      if (role === 'finance.employee') {
+        const { data, error } = await supabase
+          .from('clients')
+          .select('*, client_assignments(employee_id)')
+          .eq('status', 'ecomplete');
+        
+        if (error) throw error;
+        setClients(data || []);
+      } else if (role === 'admin') {
+        const { data, error } = await supabase
+          .from('clients')
+          .select('*, client_assignments(employee_id)')
+          .eq('status', 'ecomplete');
+        
+        if (error) throw error;
+        setClients(data || []);
+      }
+    } catch (error) {
       console.error('Error loading clients:', error);
-      return;
     }
-    setClients(data || []);
   }
 
   const filterClients = () => {
@@ -141,9 +151,9 @@ export default function FClients() {
             className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
           >
             <h3 className="text-xl font-semibold text-gray-800 mb-2">
-              {client.name}
+              {client.company}
             </h3>
-            <p className="text-gray-600 mb-4">{client.company}</p>
+            <p className="text-gray-600 mb-4">{client.name}</p>
             <p className="text-gray-500 text-sm mb-4">{client.address}</p>
             
             <div className="flex justify-between items-center">

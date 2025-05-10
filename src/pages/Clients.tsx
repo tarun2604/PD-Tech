@@ -46,13 +46,13 @@ export default function Clients() {
 
   async function loadClients() {
     try {
-      if (role === 'employee' && user?.id) {
+      if (role === 'employee') {
         const { data, error } = await supabase
           .from('client_assignments')
           .select('client:clients(*, client_assignments(employee_id))')
-          .eq('employee_id', user.id)
+          .eq('employee_id', user?.id)
           .eq('client.status', 'ongoing');
-
+        
         if (error) throw error;
         const validClients = data
           ?.map((item: any) => item.client)
@@ -62,8 +62,8 @@ export default function Clients() {
         const { data, error } = await supabase
           .from('clients')
           .select('*, client_assignments(employee_id)')
-          .eq('status', 'ongoing');
-
+          .neq('status', 'completed');
+        
         if (error) throw error;
         setClients(data || []);
       }
@@ -122,6 +122,20 @@ export default function Clients() {
 
       if (error) throw error;
 
+      // Create notifications for each assigned employee
+      for (const employeeId of selectedEmployees) {
+        await supabase
+          .from('notifications')
+          .insert({
+            title: 'New Client Assignment',
+            description: `You have been assigned to client: ${selectedClient.name} (${selectedClient.company})`,
+            scheduled_at: new Date().toISOString(),
+            created_by: user?.id,
+            assigned_to: employeeId,
+            is_delivered: false
+          });
+      }
+
       setShowAssignModal(false);
       loadClients();
     } catch (error) {
@@ -166,9 +180,9 @@ export default function Clients() {
                 className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
               >
                 <h3 className="text-xl font-semibold text-gray-800 mb-2">
-                  {client.name}
+                  {client.company}
                 </h3>
-                <p className="text-gray-600 mb-4">{client.company}</p>
+                <p className="text-gray-600 mb-4">{client.name}</p>
                 <p className="text-gray-500 text-sm mb-4">{client.address}</p>
                 
                 <div className="flex justify-between items-center">

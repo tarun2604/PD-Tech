@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, Search, Loader2 } from 'lucide-react';
+import { Plus, Users, Search, Loader2, Edit } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useStore } from '../lib/store';
 import { logActions } from '../lib/logging';
@@ -10,6 +10,7 @@ export default function AllClients() {
     const [searchQuery, setSearchQuery] = useState('');
     const [filteredClients, setFilteredClients] = useState<any[]>([]);
     const [showAddModal, setShowAddModal] = useState(false);
+    const [showEditModal, setShowEditModal] = useState(false);
     const [selectedClient, setSelectedClient] = useState<any>(null);
     const [employees, setEmployees] = useState<any[]>([]);
     const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
@@ -20,6 +21,12 @@ export default function AllClients() {
     });
     const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
     const [isCreatingClient, setIsCreatingClient] = useState(false); // New loading state
+    const [editClientData, setEditClientData] = useState({
+        name: '',
+        company: '',
+        address: ''
+    });
+    const [isEditingClient, setIsEditingClient] = useState(false);
     const navigate = useNavigate();
     const role = useStore((state) => state.role);
     const user = useStore((state) => state.user);
@@ -137,6 +144,46 @@ export default function AllClients() {
         loadClients();
     }
 
+    async function handleEditClient(e: React.FormEvent) {
+        e.preventDefault();
+        if (!selectedClient) return;
+        setIsEditingClient(true);
+
+        try {
+            const { data, error } = await supabase
+                .from('clients')
+                .update({
+                    name: editClientData.name,
+                    company: editClientData.company,
+                    address: editClientData.address
+                })
+                .eq('id', selectedClient.id)
+                .select()
+                .single();
+
+            if (error) {
+                console.error('Error updating client:', error);
+                return;
+            }
+
+            // Log client update
+            if (user?.id) {
+                await logActions.clientUpdated(
+                    user.id,
+                    data.id,
+                    editClientData.name
+                );
+            }
+
+            setClients(clients.map(client => 
+                client.id === selectedClient.id ? data : client
+            ));
+            setShowEditModal(false);
+        } finally {
+            setIsEditingClient(false);
+        }
+    }
+
     const filteredEmployees = employees.filter(employee =>
             employee.full_name.toLowerCase().includes(employeeSearchQuery.toLowerCase())
     );
@@ -175,9 +222,9 @@ export default function AllClients() {
                         className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
                     >
                         <h3 className="text-xl font-semibold text-gray-800 mb-2">
-                            {client.name}
+                            {client.company}
                         </h3>
-                        <p className="text-gray-600 mb-4">{client.company}</p>
+                        <p className="text-gray-600 mb-4">{client.name}</p>
                         <p className="text-gray-500 text-sm mb-4">{client.address}</p>
                         
                         <div className="flex justify-between items-center">
@@ -187,7 +234,21 @@ export default function AllClients() {
                             >
                                 View Details
                             </button>
-                            
+                            <button
+                                onClick={() => {
+                                    setSelectedClient(client);
+                                    setEditClientData({
+                                        name: client.name,
+                                        company: client.company,
+                                        address: client.address
+                                    });
+                                    setShowEditModal(true);
+                                }}
+                                className="flex items-center text-gray-600 hover:text-gray-800"
+                            >
+                                <Edit className="w-4 h-4 mr-1" />
+                                Edit
+                            </button>
                         </div>
                     </div>
                 ))}
@@ -250,6 +311,71 @@ export default function AllClients() {
                                         </>
                                     ) : (
                                         'Create'
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Client Modal */}
+            {showEditModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                    <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                        <h2 className="text-xl font-bold mb-4">Edit Client Details</h2>
+                        <form onSubmit={handleEditClient}>
+                            <div className="mb-4">
+                                <label className="block text-gray-700 mb-2">Company</label>
+                                <input
+                                    type="text"
+                                    value={editClientData.company}
+                                    onChange={(e) => setEditClientData({...editClientData, company: e.target.value})}
+                                    className="w-full p-2 border rounded"
+                                    required
+                                />
+                            </div>
+                            <div className="mb-4">
+                                <label className="block text-gray-700 mb-2">Name</label>
+                                <input
+                                    type="text"
+                                    value={editClientData.name}
+                                    onChange={(e) => setEditClientData({...editClientData, name: e.target.value})}
+                                    className="w-full p-2 border rounded"
+                                    required
+                                />
+                            </div>
+                            <div className="mb-4">
+                                <label className="block text-gray-700 mb-2">Address</label>
+                                <input
+                                    type="text"
+                                    value={editClientData.address}
+                                    onChange={(e) => setEditClientData({...editClientData, address: e.target.value})}
+                                    className="w-full p-2 border rounded"
+                                    required
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowEditModal(false)}
+                                    className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                                    disabled={isEditingClient}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center justify-center"
+                                    disabled={isEditingClient}
+                                >
+                                    {isEditingClient ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            Saving...
+                                        </>
+                                    ) : (
+                                        'Save Changes'
                                     )}
                                 </button>
                             </div>

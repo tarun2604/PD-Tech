@@ -44,6 +44,7 @@ export default function SiteVisitForm() {
   const [pdKitEndUploadSuccess, setPdKitEndUploadSuccess] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [role] = useStore((state) => [state.role]);
+  const addNotification = useStore((state) => state.addNotification);
 
   const [formData, setFormData] = useState<FormData>({
     address: "",
@@ -341,6 +342,28 @@ export default function SiteVisitForm() {
 
         if (visitError) throw visitError;
         siteVisitId = newVisit.id;
+
+        // Send notifications to admin and head when an employee or e.employee creates a site visit
+        if (role === 'employee' || role === 'e.employee') {
+          // Get all admin and head users
+          const { data: adminAndHeadUsers, error: usersError } = await supabase
+            .from('employees')
+            .select('id')
+            .in('role', ['admin', 'head']);
+
+          if (!usersError && adminAndHeadUsers) {
+            // Create notifications for each admin and head
+            for (const adminOrHead of adminAndHeadUsers) {
+              await addNotification({
+                title: 'New Site Visit Created',
+                description: `A new site visit has been created by ${user.email}`,
+                scheduled_at: new Date().toISOString(),
+                created_by: user.id,
+                assigned_to: adminOrHead.id
+              });
+            }
+          }
+        }
       }
 
       // Update status to "end" when completing the visit
@@ -350,6 +373,28 @@ export default function SiteVisitForm() {
         .eq("id", siteVisitId!);
 
       if (statusError) throw statusError;
+
+      // Send notifications to admin and head when a site visit is completed
+      if (visitId) {
+        // Get all admin and head users
+        const { data: adminAndHeadUsers, error: usersError } = await supabase
+          .from('employees')
+          .select('id')
+          .in('role', ['admin', 'head']);
+
+        if (!usersError && adminAndHeadUsers) {
+          // Create notifications for each admin and head
+          for (const adminOrHead of adminAndHeadUsers) {
+            await addNotification({
+              title: 'Site Visit Completed',
+              description: `A site visit has been completed by ${user.email}`,
+              scheduled_at: new Date().toISOString(),
+              created_by: user.id,
+              assigned_to: adminOrHead.id
+            });
+          }
+        }
+      }
 
       // Save form data
       const { error: formError } = await supabase

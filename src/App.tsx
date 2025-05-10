@@ -104,7 +104,7 @@ function AppContent() {
           <Route
             path="/eclients"
             element={
-              <RoleBasedRoute requiredRoles={['e.head', 'e.employee']}>
+              <RoleBasedRoute requiredRoles={['e.head', 'e.employee', 'admin']}>
                 <EClients />
               </RoleBasedRoute>
             }
@@ -113,7 +113,7 @@ function AppContent() {
           <Route
             path="/fclients"
             element={
-              <RoleBasedRoute requiredRoles={['finance.employee']}>
+              <RoleBasedRoute requiredRoles={['finance.employee', 'admin']}>
                 <FClients />
               </RoleBasedRoute>
             }

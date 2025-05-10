@@ -167,9 +167,9 @@ export default function EClients() {
                 className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
               >
                 <h3 className="text-xl font-semibold text-gray-800 mb-2">
-                  {client.name}
+                  {client.company}
                 </h3>
-                <p className="text-gray-600 mb-4">{client.company}</p>
+                <p className="text-gray-600 mb-4">{client.name}</p>
                 <p className="text-gray-500 text-sm mb-4">{client.address}</p>
                 
                 <div className="flex justify-between items-center">

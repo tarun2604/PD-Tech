@@ -79,13 +79,23 @@ export default function Layout() {
           )}
 
           {/* Clients link visible only for 'head', 'admin', and 'employee' roles */}
-          {(role === 'head' || role === 'admin' || role === 'employee') && (
+          {(role === 'head' || role === 'employee') && (
             <Link
               to="/clients"
               className="flex items-center px-6 py-3 text-gray-700 hover:bg-gray-100"
             >
               <Building2 className="w-5 h-5 mr-3" />
               My Clients
+            </Link>
+          )}
+
+          {(role === 'admin') && (
+            <Link
+              to="/clients"
+              className="flex items-center px-6 py-3 text-gray-700 hover:bg-gray-100"
+            >
+              <Building2 className="w-5 h-5 mr-3" />
+              Marketing Clients
             </Link>
           )}
 
@@ -99,6 +109,16 @@ export default function Layout() {
               My Clients
             </Link>
           )}
+          
+          {(role === 'admin') && (
+            <Link
+              to="/eclients"
+              className="flex items-center px-6 py-3 text-gray-700 hover:bg-gray-100"
+            >
+              <Building2 className="w-5 h-5 mr-3" />
+              Execution Clients
+            </Link>
+          )}
 
           {/* EClients link visible only for 'e.employee' role */}
           {( role === 'finance.employee') && (
@@ -108,6 +128,16 @@ export default function Layout() {
             >
               <Building2 className="w-5 h-5 mr-3" />
               My Clients
+            </Link>
+          )}
+
+          {( role === 'admin') && (
+            <Link
+              to="/fclients"
+              className="flex items-center px-6 py-3 text-gray-700 hover:bg-gray-100"
+            >
+              <Building2 className="w-5 h-5 mr-3" />
+              Finance Clients
             </Link>
           )}
 
